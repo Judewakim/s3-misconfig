@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for S3 Security Scanner Lambda deployment
+
+Resources:
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SecurityScannerRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3SecurityScannerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketEncryption
+                  - s3:PutPublicAccessBlock
+                  - s3:PutBucketAcl
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketEncryption
+                Resource: '*'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # Lambda Function
+  S3SecurityScannerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: S3SecurityScanner
+      Handler: s3-misconfig.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: judewakim-s3-misconfig  # Replace with your S3 bucket
+        S3Key: code/lambda_function.zip     # Replace with your zip file name
+      Timeout: 300  # 5 minute timeout (adjust if needed for many buckets)
+      MemorySize: 128  # 128 MB (sufficient for MVP)
+
+  # EventBridge Rule for Daily Trigger
+  S3SecurityScannerRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: S3SecurityScannerDaily
+      Description: Trigger S3 Security Scanner daily at 2 AM UTC
+      ScheduleExpression: cron(0 2 * * ? *)  # Daily at 2 AM UTC (10 PM EDT)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt S3SecurityScannerFunction.Arn
+          Id: S3SecurityScannerTarget
+
+  # Permission for EventBridge to invoke Lambda
+  PermissionForEventsToInvokeLambda:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref S3SecurityScannerFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt S3SecurityScannerRule.Arn
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt S3SecurityScannerFunction.Arn
+  LambdaFunctionName:
+    Description: Name of the Lambda function
+    Value: !Ref S3SecurityScannerFunction
