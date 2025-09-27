@@ -270,10 +270,3 @@ def remediate_risks(s3_client, risks, config):
 # Optional: Add error handling or logging functions if needed
 # def log_error(error_message):
 #     print(error_message)  # Logs to CloudWatch
-
-if __name__ == "__main__":
-    import json
-    s3_client = boto3.client('s3')
-    config = {"exclude_buckets": ["securitystackbucket-config-123"]}  # Test config
-    risks = scan_buckets(s3_client, config)
-    print(json.dumps(risks, indent=2))
