@@ -21,6 +21,7 @@ The architecture consists of the following components:
   - Lack of default server-side encryption.
 - Outputs detailed JSON results summarizing risks per bucket.
 - Optional remediation via a `remediate` flag to fix identified issues safely.
+- Optional dry run via a `dry_run` flag to preview without changes.
 - Configurable exclusions for specific buckets.
 
 ## Getting Started
@@ -42,7 +43,7 @@ The architecture consists of the following components:
    ```
 3. Deploy the Lambda function using the provided CloudFormation template:
    ```bash
-   aws cloudformation deploy --template-file template.yaml --stack-name s3-security-scanner --capabilities CAPABILITY_NAMED_IAM
+   aws cloudformation deploy --template-file s3-misconfig.yaml --stack-name s3-security-scanner --capabilities CAPABILITY_NAMED_IAM
    ```
 
 ### Usage
