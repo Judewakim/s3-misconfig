@@ -1,5 +1,3 @@
-#needs to be in lambda_function.zip and zip needs to be uploaded to s3://judewakim-s3-misconfig/code
-
 # Import necessary libraries
 import profile
 import boto3
@@ -65,13 +63,11 @@ def scan_buckets(s3_client, config):
     def severity_rank(severity):
         return {'none': 0, 'low': 1, 'medium': 2, 'high': 3}.get(severity, 0)
 
-    # Fetch list of all buckets in the account with pagination support
+    # Fetch list of all buckets in the account with direct call (no pagination needed)
     bucket_list = []
-    paginator = s3_client.get_paginator('list_buckets')
-
     try:
-        for page in paginator.paginate():
-            bucket_list.extend(page['Buckets'])
+        response = s3_client.list_buckets()
+        bucket_list.extend(response['Buckets'])
     except ClientError as e:
         print(f"Error listing buckets: {e}")
         return []
