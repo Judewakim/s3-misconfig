@@ -46,9 +46,10 @@ The architecture consists of the following components:
    ```
 
 ### Usage
-- Trigger the Lambda function manually via AWS CLI:
+- Deploy the stack via CloudFormation for daily EventBridge triggers
+- For ad hoc runs with custom settings, trigger the Lambda function manually via AWS CLI:
   ```bash
-  aws lambda invoke --function-name s3-security-scanner --payload '{"remediate": true}' output.json
+  aws lambda invoke --function-name S3SecurityScanner --payload '{"config": {"exclude_buckets": ["excluded-bucket"]}, "remediate": true, "dry_run": false}' output.json
   ```
 - Check the output file `output.json` for scan results.
 
@@ -59,7 +60,8 @@ The architecture consists of the following components:
     "config": {
       "exclude_buckets": ["logs-bucket"]
     },
-    "remediate": false
+    "remediate": false,
+    "dry_run": false
   }
   ```
 
