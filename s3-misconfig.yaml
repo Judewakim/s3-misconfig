@@ -47,6 +47,7 @@ Resources:
                   - s3:GetBucketAcl
                   - s3:GetBucketPolicy
                   - s3:GetBucketPublicAccessBlock
+                  - s3:GetEncryptionConfiguration
                   - s3:GetBucketEncryption
                   - s3:PutPublicAccessBlock
                   - s3:PutBucketAcl
