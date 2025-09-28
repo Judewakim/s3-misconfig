@@ -1,6 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation template for S3 Security Scanner Lambda deployment
 
+Parameters:
+  ExcludeBuckets:
+    Type: String
+    Description: Comma-separated list of S3 bucket names (e.g., bucket1,bucket2)
+    Default: ""
+  InvocationMode:
+    Type: String
+    Description: "Choose the EventBridge invocation mode: 'scanning_only' or 'scanning_and_autoremediation'"
+    Default: "scanning_only"
+    AllowedValues:
+      - "scanning_only"
+      - "scanning_and_autoremediation"
+
+Conditions:
+  IsAutoRemediation: !Equals [!Ref InvocationMode, "scanning_and_autoremediation"]
+
 Resources:
   # IAM Role for Lambda
   LambdaExecutionRole:
@@ -31,6 +47,7 @@ Resources:
                   - s3:GetBucketAcl
                   - s3:GetBucketPolicy
                   - s3:GetBucketPublicAccessBlock
+                  - s3:GetEncryptionConfiguration
                   - s3:GetBucketEncryption
                   - s3:PutPublicAccessBlock
                   - s3:PutBucketAcl
@@ -50,8 +67,8 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: judewakim-s3-misconfig  # Replace with your S3 bucket
-        S3Key: code/lambda_function.zip     # Replace with your zip file name
-      Timeout: 300  # 5 minute timeout (adjust if needed for many buckets)
+        S3Key: code/s3-misconfig.zip     # Replace with your zip file name
+      Timeout: 120  # 5 minute timeout (adjust if needed for many buckets)
       MemorySize: 128  # 128 MB (sufficient for MVP)
 
   # EventBridge Rule for Daily Trigger
@@ -59,12 +76,25 @@ Resources:
     Type: AWS::Events::Rule
     Properties:
       Name: S3SecurityScannerDaily
-      Description: Trigger S3 Security Scanner daily at 2 AM UTC
+      Description: Trigger S3 Security Scanner daily at 10 PM EDT based on chosen invocation mode
       ScheduleExpression: cron(0 2 * * ? *)  # Daily at 2 AM UTC (10 PM EDT)
       State: ENABLED
       Targets:
         - Arn: !GetAtt S3SecurityScannerFunction.Arn
           Id: S3SecurityScannerTarget
+          Input: !Sub
+            - |
+              {
+                "config": {
+                  "exclude_buckets": ["${ExcludeBuckets}"]
+                },
+                "remediate": ${Remediate},
+                "dry_run": ${DryRun}
+              }
+            - {
+                Remediate: !If [IsAutoRemediation, "true", "false"],
+                DryRun: !If [IsAutoRemediation, "false", "true"]
+              }
 
   # Permission for EventBridge to invoke Lambda
   PermissionForEventsToInvokeLambda:
