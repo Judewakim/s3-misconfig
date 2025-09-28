@@ -198,73 +198,130 @@ def scan_buckets(s3_client, config):
             'skipped': False
         })
 
-        print(f"  - Completed scan for {bucket_name}, severity: {severity}, risks: {len(bucket_risks)}")
+        print(f"  Completed scan for {bucket_name}, severity: {severity}, risks: {len(bucket_risks)}")
 
     print(f"Scan completed. Processed {len(risks)} buckets")
     # Return the list of risks
     return risks
 
-# Function to remediate identified risks
+# Function to remediate identified risks safely
 def remediate_risks(s3_client, risks, config):
-    # Initialize list to track applied fixes
+    # Initialize list to track applied or skipped fixes
     fixes = []
 
-    # Loop through buckets with high or medium severity risks
+    # Loop through buckets with high or medium severity (skip low/none or skipped buckets)
     for bucket in [r for r in risks if r['severity'] in ['high', 'medium'] and not r.get('skipped')]:
         bucket_name = bucket['name']
+        print(f"Starting remediation for bucket: {bucket_name}")
+
+        # Loop through each risk in the bucket
+        # NOTE: Processing order matters - PublicACL should be handled before PublicAccessBlockDisabled
+        # to ensure proper ACL cleanup before enabling blocks that would prevent ACL changes
         for risk in bucket['risks']:
-            # Remediation 1: Enable Public Access Block
-            if risk['type'] == 'PublicAccessBlockDisabled':
-                s3_client.put_public_access_block(
-                    Bucket=bucket_name,
-                    PublicAccessBlockConfiguration={
-                        'BlockPublicAcls': True,
-                        'IgnorePublicAcls': True,
-                        'BlockPublicPolicy': True,
-                        'RestrictPublicBuckets': True
-                    }
-                )
-                fixes.append({'bucket': bucket_name, 'action': 'enabled_public_access_block'})
+            risk_type = risk['type']
+            details = risk['details']
 
-            # Remediation 2: Remove Public ACLs (with safety check)
-            if risk['type'] == 'PublicACL':
-                # Check for objects with public ACLs before changing
-                objects = s3_client.list_objects_v2(Bucket=bucket_name, MaxKeys=100)
-                if not any(obj.get('ACL') for obj in objects.get('Contents', [])):
-                    s3_client.put_bucket_acl(Bucket=bucket_name, ACL='private')
-                    fixes.append({'bucket': bucket_name, 'action': 'removed_public_acl'})
-                else:
-                    fixes.append({'bucket': bucket_name, 'action': 'skipped_public_acl_due_to_objects', 'reason': 'public_object_acls_detected'})
-
-            # Remediation 3: Fix Wildcard Policy (simple case only)
-            if risk['type'] == 'WildcardPolicy':
+            # Remediation 1: Remove Public ACLs if present (with safety check) - PRIORITY FIRST
+            if risk_type == 'PublicACL':
                 try:
+                    # Safety check: List objects and check for public ACLs
+                    objects = s3_client.list_objects_v2(Bucket=bucket_name, MaxKeys=100)
+                    has_public_objects = False
+
+                    # Check each object for public ACL grants using get_object_acl
+                    if 'Contents' in objects:
+                        for obj in objects['Contents']:
+                            try:
+                                obj_acl = s3_client.get_object_acl(Bucket=bucket_name, Key=obj['Key'])
+                                for grant in obj_acl.get('Grants', []):
+                                    grantee = grant.get('Grantee', {})
+                                    if grantee.get('Type') == 'Group' and 'AllUsers' in grantee.get('URI', ''):
+                                        has_public_objects = True
+                                        break
+                                if has_public_objects:
+                                    break
+                            except ClientError:
+                                # Skip if can't check object ACL
+                                continue
+
+                    if has_public_objects:
+                        fixes.append({'bucket': bucket_name, 'action': 'removed_public_acl', 'status': 'skipped', 'reason': 'Objects with public ACLs detected - manual review required'})
+                        print(f"Skipped removing Public ACL for {bucket_name} due to public objects")
+                    else:
+                        # Apply fix: Set bucket ACL to private
+                        s3_client.put_bucket_acl(Bucket=bucket_name, ACL='private')
+                        fixes.append({'bucket': bucket_name, 'action': 'removed_public_acl', 'status': 'success'})
+                        print(f"- Removed Public ACL for {bucket_name}")
+                except ClientError as e:
+                    fixes.append({'bucket': bucket_name, 'action': 'removed_public_acl', 'status': 'failed', 'reason': str(e)})
+                    print(f"Error removing Public ACL for {bucket_name}: {str(e)}")
+
+            # Remediation 2: Enable Public Access Block if disabled - AFTER ACL cleanup
+            elif risk_type == 'PublicAccessBlockDisabled':
+                try:
+                    # Apply fix: Set all blocks to True
+                    s3_client.put_public_access_block(
+                        Bucket=bucket_name,
+                        PublicAccessBlockConfiguration={
+                            'BlockPublicAcls': True,
+                            'IgnorePublicAcls': True,
+                            'BlockPublicPolicy': True,
+                            'RestrictPublicBuckets': True
+                        }
+                    )
+                    fixes.append({'bucket': bucket_name, 'action': 'enabled_public_access_block', 'status': 'success'})
+                    print(f"- Enabled Public Access Block for {bucket_name}")
+                except ClientError as e:
+                    fixes.append({'bucket': bucket_name, 'action': 'enabled_public_access_block', 'status': 'failed', 'reason': str(e)})
+                    print(f"Error enabling Public Access Block for {bucket_name}: {str(e)}")
+
+            # Remediation 3: Fix Wildcard Policy (simple cases only)
+            elif risk_type == 'WildcardPolicy':
+                try:
+                    # Retrieve current policy
                     policy = s3_client.get_bucket_policy(Bucket=bucket_name)
                     policy_json = json.loads(policy['Policy'])
-                    updated_statements = [s for s in policy_json['Statement'] if s.get('Principal') != '*']
-                    if len(updated_statements) < len(policy_json['Statement']):
-                        s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps({'Statement': updated_statements}))
-                        fixes.append({'bucket': bucket_name, 'action': 'removed_wildcard_policy'})
+                    statements = policy_json.get('Statement', [])
+
+                    # Remove wildcard statements (e.g., Principal == '*')
+                    updated_statements = [stmt for stmt in statements if stmt.get('Principal') != '*']  # Refine for complex principals
+
+                    # If changes made and not complex, apply
+                    if len(updated_statements) < len(statements):
+                        new_policy = json.dumps({'Version': policy_json['Version'], 'Statement': updated_statements})
+                        s3_client.put_bucket_policy(Bucket=bucket_name, Policy=new_policy)
+                        fixes.append({'bucket': bucket_name, 'action': 'removed_wildcard_policy', 'status': 'success'})
+                        print(f"- Removed wildcard policy for {bucket_name}")
                     else:
-                        fixes.append({'bucket': bucket_name, 'action': 'skipped_wildcard_policy', 'reason': 'complex_policy_detected'})
-                except ClientError:
-                    fixes.append({'bucket': bucket_name, 'action': 'skipped_wildcard_policy', 'reason': 'policy_access_denied'})
+                        fixes.append({'bucket': bucket_name, 'action': 'removed_wildcard_policy', 'status': 'skipped', 'reason': 'no changes or complex policy'})
+                        print(f"Skipped wildcard policy remediation for {bucket_name}: no changes or complex")
+                except ClientError as e:
+                    fixes.append({'bucket': bucket_name, 'action': 'removed_wildcard_policy', 'status': 'failed', 'reason': str(e)})
+                    print(f"Error fixing wildcard policy for {bucket_name}: {str(e)}")
 
-            # Remediation 4: Enable Encryption
-            if risk['type'] == 'NoEncryption':
-                s3_client.put_bucket_encryption(
-                    Bucket=bucket_name,
-                    ServerSideEncryptionConfiguration={
-                        'Rules': [{
-                            'ApplyServerSideEncryptionByDefault': {
-                                'SSEAlgorithm': 'AES256'
-                            }
-                        }]
-                    }
-                )
-                fixes.append({'bucket': bucket_name, 'action': 'enabled_encryption'})
+            # Remediation 4: Enable Default Encryption if missing
+            elif risk_type == 'NoEncryption':
+                try:
+                    # Apply fix: Enable SSE-S3 (AES256)
+                    s3_client.put_bucket_encryption(
+                        Bucket=bucket_name,
+                        ServerSideEncryptionConfiguration={
+                            'Rules': [{
+                                'ApplyServerSideEncryptionByDefault': {
+                                    'SSEAlgorithm': 'AES256'
+                                }
+                            }]
+                        }
+                    )
+                    fixes.append({'bucket': bucket_name, 'action': 'enabled_encryption', 'status': 'success'})
+                    print(f"- Enabled encryption for {bucket_name}")
+                except ClientError as e:
+                    fixes.append({'bucket': bucket_name, 'action': 'enabled_encryption', 'status': 'failed', 'reason': str(e)})
+                    print(f"Error enabling encryption for {bucket_name}: {str(e)}")
 
-    # Return list of applied fixes
+        print(f"Completed remediation for bucket: {bucket_name}")
+
+    # Return the fixes list for inclusion in the Lambda response
     return fixes
 
 # Optional: Add error handling or logging functions if needed
