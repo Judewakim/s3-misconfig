@@ -2,6 +2,8 @@
 import profile
 import boto3
 import json
+import os
+from datetime import datetime
 from botocore.exceptions import ClientError
 
 # Initialize AWS clients (e.g., S3 client)
@@ -36,11 +38,17 @@ def lambda_handler(event, context):
         # Update results with remediation outcomes
         results['fixes'] = fixes_applied
 
+    # Email notification logic - send results via SES
+    email = event.get('email', None)
+    if email:
+        send_email_notification(email, results, remediate)
+
     # Return JSON response with status and body
     return {
         'statusCode': 200,
         'body': json.dumps(results)
     }
+
 
 # Function to scan all S3 buckets for misconfigurations
 def scan_buckets(s3_client, config):
@@ -319,6 +327,213 @@ def remediate_risks(s3_client, risks, config):
 
     # Return the fixes list for inclusion in the Lambda response
     return fixes
+
+# Function to send email notification with scan results
+def send_email_notification(email, results, remediate):
+    """
+    Send email notification with scan results using SES
+
+    Args:
+        email: Recipient email address
+        results: Scan results dictionary
+        remediate: Boolean indicating if remediation was performed
+    """
+    # Initialize SES client
+    ses_client = boto3.client('ses')
+
+    try:
+        # Determine mode and build subject
+        if remediate:
+            # Count fixes by status
+            fixes = results.get('fixes', [])
+            fixed_count = len([f for f in fixes if f['status'] == 'success'])
+            needs_help_count = len([f for f in fixes if f['status'] in ['skipped', 'failed']])
+
+            # Add remaining high risk after fixes
+            remaining_high_risk = results['summary']['high_risk']
+            total_needs_help = needs_help_count + remaining_high_risk
+
+            if total_needs_help > 0:
+                subject = f"S3 Scan: {fixed_count} issues fixed, {total_needs_help} needs your help"
+            else:
+                subject = f"S3 Scan: {fixed_count} issues fixed, All Clean"
+        else:
+            # Scan only mode
+            high_risk_count = results['summary']['high_risk']
+            if high_risk_count > 0:
+                subject = f"S3 Scan: {high_risk_count} issues found"
+            else:
+                subject = "S3 Scan: All Clean"
+
+        # Build HTML email body
+        html_body = build_html_email_body(results, remediate)
+
+        # Send email using SES
+        ses_client.send_email(
+            Source='scanner@wakimworks.com',
+            Destination={'ToAddresses': [email]},
+            Message={
+                'Subject': {'Data': subject},
+                'Body': {'Html': {'Data': html_body}}
+            }
+        )
+
+        print(f"Email notification sent successfully to {email}")
+
+    except ClientError as e:
+        print(f"Error sending email notification: {e}")
+        # Continue execution - don't crash on email failure
+
+def build_html_email_body(results, remediate):
+    """
+    Build HTML email body with scan results
+
+    Args:
+        results: Scan results dictionary
+        remediate: Boolean indicating if remediation was performed
+
+    Returns:
+        HTML string for email body
+    """
+    # Get scan details
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    region = os.environ.get('AWS_REGION', 'Unknown')
+    total_buckets = results['summary']['total_buckets']
+
+    # Start building HTML
+    html = f"""
+    <html>
+    <head>
+        <style>
+            table {{border-collapse: collapse; width: 100%;}}
+            th, td {{border: 1px solid #ddd; padding: 8px; text-align: left;}}
+            th {{background-color: #f2f2f2;}}
+            .high {{color: #ff0000; font-weight: bold;}}
+            .medium {{color: #ff8800; font-weight: bold;}}
+            .low {{color: #0088ff;}}
+            .none {{color: #008800;}}
+            h1, h2 {{color: #333;}}
+        </style>
+    </head>
+    <body>
+        <h1>Scan Details</h1>
+        <p><strong>Timestamp:</strong> {timestamp}</p>
+        <p><strong>Region:</strong> {region}</p>
+        <p><strong>Total Buckets Scanned:</strong> {total_buckets}</p>
+    """
+
+    # Add remediation section if applicable
+    if remediate and 'fixes' in results:
+        html += """
+        <h2>Remediations</h2>
+        <table>
+            <tr><th>Bucket</th><th>Action</th><th>Status</th><th>Reason</th></tr>
+        """
+
+        for fix in results['fixes']:
+            status_class = 'high' if fix['status'] == 'failed' else ('medium' if fix['status'] == 'skipped' else 'none')
+            reason = fix.get('reason', 'N/A')
+            html += f"""
+            <tr>
+                <td>{fix['bucket']}</td>
+                <td>{fix['action'].replace('_', ' ').title()}</td>
+                <td class="{status_class}">{fix['status'].title()}</td>
+                <td>{reason}</td>
+            </tr>
+            """
+
+        html += "</table>"
+
+    # Group findings by severity
+    findings_by_severity = {'high': [], 'medium': [], 'low': [], 'none': []}
+
+    for bucket in results['buckets']:
+        if not bucket.get('skipped', False):
+            for risk in bucket['risks']:
+                # Determine severity for this specific risk
+                if risk['type'] in ['PublicAccessBlockDisabled', 'PublicACL']:
+                    severity = 'high'
+                elif risk['type'] in ['WildcardPolicy', 'NoPolicy', 'NoEncryption']:
+                    severity = 'medium'
+                else:
+                    severity = 'low'
+
+                # Generate risk explanation and fix command
+                risk_explanation, fix_command = get_risk_details(risk['type'], bucket['name'])
+
+                findings_by_severity[severity].append({
+                    'bucket': bucket['name'],
+                    'issue': risk['type'],
+                    'risk': risk_explanation,
+                    'fix': fix_command
+                })
+
+    # Add findings section
+    html += "<h2>Findings</h2>"
+
+    for severity in ['high', 'medium', 'low', 'none']:
+        if findings_by_severity[severity]:
+            html += f"""
+            <h3 class="{severity}">{severity.title()} Risk Issues</h3>
+            <table>
+                <tr><th>Severity</th><th>Bucket</th><th>Issue</th><th>Risk</th><th>Fix</th></tr>
+            """
+
+            for finding in findings_by_severity[severity]:
+                html += f"""
+                <tr>
+                    <td class="{severity}">{severity.upper()}</td>
+                    <td>{finding['bucket']}</td>
+                    <td>{finding['issue']}</td>
+                    <td>{finding['risk']}</td>
+                    <td><code>{finding['fix']}</code></td>
+                </tr>
+                """
+
+            html += "</table>"
+
+    html += """
+    </body>
+    </html>
+    """
+
+    return html
+
+def get_risk_details(risk_type, bucket_name):
+    """
+    Get plain English explanation and CLI fix command for each risk type
+
+    Args:
+        risk_type: Type of risk identified
+        bucket_name: Name of the affected bucket
+
+    Returns:
+        Tuple of (risk_explanation, fix_command)
+    """
+    risk_details = {
+        'PublicAccessBlockDisabled': (
+            'Public Access Block settings are disabled, allowing potential public access to your data—high exposure risk',
+            f'aws s3api put-public-access-block --bucket {bucket_name} --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true'
+        ),
+        'PublicACL': (
+            'Public ACL allows anyone to read your data—high exposure risk',
+            f'aws s3api put-bucket-acl --bucket {bucket_name} --acl private'
+        ),
+        'WildcardPolicy': (
+            'Bucket policy contains wildcard permissions that may allow unintended public access—medium risk',
+            f'aws s3api delete-bucket-policy --bucket {bucket_name} # Review and update policy'
+        ),
+        'NoPolicy': (
+            'No bucket policy configured—medium risk of uncontrolled access',
+            f'aws s3api put-bucket-policy --bucket {bucket_name} --policy file://restrictive-policy.json'
+        ),
+        'NoEncryption': (
+            'Default encryption not configured—medium risk of data exposure',
+            f'aws s3api put-bucket-encryption --bucket {bucket_name} --server-side-encryption-configuration \'{{"Rules": [{{"ApplyServerSideEncryptionByDefault": {{"SSEAlgorithm": "AES256"}}}}]}}\''
+        )
+    }
+
+    return risk_details.get(risk_type, ('Unknown risk type', 'Manual review required'))
 
 # Optional: Add error handling or logging functions if needed
 # def log_error(error_message):
