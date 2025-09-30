@@ -27,7 +27,7 @@ Resources:
   SESIdentity:
     Type: AWS::SES::EmailIdentity
     Properties:
-      EmailIdentity: !Ref scanner@wakimworks.com
+      EmailIdentity: scanner@wakimworks.com
 
   # IAM Role for Lambda
   LambdaExecutionRole:
