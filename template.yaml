@@ -4,7 +4,7 @@ Description: CloudFormation template for S3 Security Scanner Lambda deployment
 Parameters:
   UserEmail:
     Type: String
-    Description: Email address for sending SNS notifications
+    Description: Your email address for receiving scan results (must be verified in SES)
     AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
     ConstraintDescription: Must be a valid email address
   ExcludeBuckets:
@@ -23,12 +23,6 @@ Conditions:
   IsAutoRemediation: !Equals [!Ref InvocationMode, "scanning_and_autoremediation"]
 
 Resources:
-  # SES Identity for Sender Email
-  SESIdentity:
-    Type: AWS::SES::EmailIdentity
-    Properties:
-      EmailIdentity: scanner@wakimworks.com
-
   # IAM Role for Lambda
   LambdaExecutionRole:
     Type: AWS::IAM::Role
