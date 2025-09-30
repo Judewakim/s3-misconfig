@@ -116,6 +116,26 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt S3SecurityScannerRule.Arn
 
+  # Automatic Scan Upon Deployment
+  S3SecurityScannerDeploymentTrigger:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt S3SecurityScannerFunction.Arn
+      ScanConfig: !Sub
+        - |
+          {
+            "config": {
+              "exclude_buckets": ["${ExcludeBuckets}"]
+            },
+            "remediate": ${Remediate},
+            "dry_run": ${DryRun},
+            "email": "${UserEmail}"
+          }
+        - {
+            Remediate: !If [IsAutoRemediation, "true", "false"],
+            DryRun: !If [IsAutoRemediation, "false", "true"]
+          }
+
 Outputs:
   LambdaFunctionArn:
     Description: ARN of the Lambda function
