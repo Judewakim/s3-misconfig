@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation template for S3 Security Scanner Lambda deployment
 
 Parameters:
+  UserEmail:
+    Type: String
+    Description: Email address for sending SNS notifications
+    AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+    ConstraintDescription: Must be a valid email address
   ExcludeBuckets:
     Type: String
     Description: Comma-separated list of S3 bucket names (e.g., bucket1,bucket2)
@@ -18,6 +23,12 @@ Conditions:
   IsAutoRemediation: !Equals [!Ref InvocationMode, "scanning_and_autoremediation"]
 
 Resources:
+  # SES Identity for Sender Email
+  SESIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref scanner@wakimworks.com
+
   # IAM Role for Lambda
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -54,6 +65,11 @@ Resources:
                   - s3:PutBucketPolicy
                   - s3:PutBucketEncryption
                 Resource: '*'
+              - Effect: Allow
+                Action: 
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*' # Scope to SES identity ARN later
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
 
@@ -89,7 +105,8 @@ Resources:
                   "exclude_buckets": ["${ExcludeBuckets}"]
                 },
                 "remediate": ${Remediate},
-                "dry_run": ${DryRun}
+                "dry_run": ${DryRun},
+                "email": "${UserEmail}"
               }
             - {
                 Remediate: !If [IsAutoRemediation, "true", "false"],
