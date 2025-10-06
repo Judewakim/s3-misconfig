@@ -11,10 +11,17 @@ s3_client = boto3.client('s3')
 
 # Main Lambda handler function
 def lambda_handler(event, context):
+    # Determine event source: CloudFormation Custom Resource or EventBridge
+    if 'RequestType' in event and event['RequestType'] == 'Create':
+        event_data = json.loads(event['ResourceProperties']['ScanConfig'])
+    else:
+        event_data = event
+    
     # Parse input event for configuration and flags
-    config = event.get('config', {})  # e.g., {'exclude_buckets': ['logs-bucket']}
-    remediate = event.get('remediate', False)  # Flag to enable remediation
-    dry_run = event.get('dry_run', True)  # Default to dry run for safety
+    config = event_data.get('config', {})  # e.g., {'exclude_buckets': ['logs-bucket']}
+    remediate = event_data.get('remediate', False)  # Flag to enable remediation
+    dry_run = event_data.get('dry_run', True)  # Default to dry run for safety
+    email = event_data.get('email', None)  # Email from parameters
 
     # Initialize result structure
     results = {
@@ -39,16 +46,13 @@ def lambda_handler(event, context):
         results['fixes'] = fixes_applied
 
     # Email notification logic - send results via SES
-    email = event.get('email', None)
     if email:
         send_email_notification(email, results, remediate)
 
     # Return JSON response with status and body
-    return {
-        'statusCode': 200,
-        'body': json.dumps(results)
-    }
-
+    if 'RequestType' in event:
+        return {'Status': 'SUCCESS', 'Data': {'message': 'Scan completed', 'results': results}}
+    return {'statusCode': 200, 'body': json.dumps(results)}
 
 # Function to scan all S3 buckets for misconfigurations
 def scan_buckets(s3_client, config):
@@ -384,6 +388,7 @@ def send_email_notification(email, results, remediate):
         print(f"Error sending email notification: {e}")
         # Continue execution - don't crash on email failure
 
+# Function to build HTML email body
 def build_html_email_body(results, remediate):
     """
     Build HTML email body with scan results
@@ -499,6 +504,7 @@ def build_html_email_body(results, remediate):
 
     return html
 
+# Function to get risk details
 def get_risk_details(risk_type, bucket_name):
     """
     Get plain English explanation and CLI fix command for each risk type
