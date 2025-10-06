@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime
 from botocore.exceptions import ClientError
+import cfnresponse
 
 # Initialize AWS clients (e.g., S3 client)
 s3_client = boto3.client('s3')
@@ -16,7 +17,7 @@ def lambda_handler(event, context):
         event_data = json.loads(event['ResourceProperties']['ScanConfig'])
     else:
         event_data = event
-    
+
     # Parse input event for configuration and flags
     config = event_data.get('config', {})  # e.g., {'exclude_buckets': ['logs-bucket']}
     remediate = event_data.get('remediate', False)  # Flag to enable remediation
@@ -29,30 +30,37 @@ def lambda_handler(event, context):
         'buckets': []
     }
 
-    # Call function to scan all buckets and collect risks
-    bucket_risks = scan_buckets(s3_client, config)
+    try:
+        # Call function to scan all buckets and collect risks
+        bucket_risks = scan_buckets(s3_client, config)
 
-    # Update summary with total and high-risk counts
-    results['summary']['total_buckets'] = len(bucket_risks)
-    results['summary']['high_risk'] = sum(1 for b in bucket_risks if b.get('severity') == 'high')
+        # Update summary with total and high-risk counts
+        results['summary']['total_buckets'] = len(bucket_risks)
+        results['summary']['high_risk'] = sum(1 for b in bucket_risks if b.get('severity') == 'high')
 
-    # Append detailed bucket risks to results
-    results['buckets'] = bucket_risks
+        # Append detailed bucket risks to results
+        results['buckets'] = bucket_risks
 
-    # If remediation is requested, apply fixes (with safety checks)
-    if remediate and not dry_run:
-        fixes_applied = remediate_risks(s3_client, bucket_risks, config)
-        # Update results with remediation outcomes
-        results['fixes'] = fixes_applied
+        # If remediation is requested, apply fixes (with safety checks)
+        if remediate and not dry_run:
+            fixes_applied = remediate_risks(s3_client, bucket_risks, config)
+            # Update results with remediation outcomes
+            results['fixes'] = fixes_applied
 
-    # Email notification logic - send results via SES
-    if email:
-        send_email_notification(email, results, remediate)
+        # Email notification logic - send results via SES
+        if email:
+            send_email_notification(email, results, remediate)
 
-    # Return JSON response with status and body
-    if 'RequestType' in event:
-        return {'Status': 'SUCCESS', 'Data': {'message': 'Scan completed', 'results': results}}
-    return {'statusCode': 200, 'body': json.dumps(results)}
+        # Return JSON response with status and body
+        if 'RequestType' in event:
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, {'message': 'Scan completed', 'results': results})
+            return {'Status': 'SUCCESS', 'Data': {'message': 'Scan completed', 'results': results}}
+        return {'statusCode': 200, 'body': json.dumps(results)}
+    except Exception as e:
+        print(f"Error during Lambda execution: {str(e)}")
+        if 'RequestType' in event:
+            cfnresponse.send(event, context, cfnresponse.FAILED, {'error': str(e)})
+        raise
 
 # Function to scan all S3 buckets for misconfigurations
 def scan_buckets(s3_client, config):
