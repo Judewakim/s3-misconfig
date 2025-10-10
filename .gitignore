@@ -211,3 +211,5 @@ __marimo__/
 scan-buckets-temp.py
 remediate-risks-temp.py
 send-emails-temp.py
+*.zip
+*-temp.py
