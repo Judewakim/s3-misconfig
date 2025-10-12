@@ -75,12 +75,22 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          set -e
+          set -xe # show commands and exit on 
+          dnf install -y jq awscli  # ensure jq and aws CLI are available
+
           STACK_NAME="S3ScannerDeployment"
           TEMPLATE_URL="https://s3.amazonaws.com/judewakim-s3-misconfig/code/template.yaml"
+          
+          # Wait for IAM role credentials to propagate
+          sleep 15
+          
           REGION=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
           INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 
+          echo "Region detected: $REGION"
+          echo "Instance ID detected: $INSTANCE_ID"
+          aws sts get-caller-identity --region "$REGION"
+          
           echo "Launching S3 Scanner stack..."
           aws cloudformation create-stack \
             --stack-name "$STACK_NAME" \
