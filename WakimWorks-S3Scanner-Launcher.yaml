@@ -52,6 +52,7 @@ Resources:
                   - s3:GetObject
                   - ec2:TerminateInstances
                   - sts:GetCallerIdentity
+                  - iam:GetRole
                 Resource: "*"
 
   # ------------------------------
