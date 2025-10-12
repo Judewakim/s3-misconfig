@@ -79,7 +79,7 @@ Resources:
                   - lambda:AddPermission
                   - lambda:RemovePermission
                   - lambda:TagResource
-                Resource: "arn:aws:lambda:*:*:function:S3Scanner*"
+                Resource: "arn:aws:lambda:*:*:function:S3SecurityScanner*"
 
               - Sid: SNSManagement
                 Effect: Allow
@@ -90,7 +90,7 @@ Resources:
                   - sns:GetTopicAttributes
                   - sns:SetTopicAttributes
                   - sns:TagResource
-                Resource: "arn:aws:sns:*:*:S3Scanner*"
+                Resource: "*"
 
               - Sid: SESPermissions
                 Effect: Allow
