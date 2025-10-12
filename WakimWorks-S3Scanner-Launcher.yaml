@@ -66,6 +66,8 @@ Resources:
                   - iam:GetRole
                   - iam:DeleteRolePolicy
                   - iam:DeleteRole
+                  - iam:DetachRolePolicy
+                  - iam:DetachRole
                 Resource: "arn:aws:iam::*:role/S3SecurityScannerRole*"
 
               - Sid: LambdaManagement
@@ -79,6 +81,9 @@ Resources:
                   - lambda:AddPermission
                   - lambda:RemovePermission
                   - lambda:TagResource
+                  - lambda:ListFunctions
+                  - lambda:GetFunctionConfiguration
+                  - lambda:InvokeFunction
                 Resource: "arn:aws:lambda:*:*:function:S3SecurityScanner*"
 
               - Sid: SNSManagement
