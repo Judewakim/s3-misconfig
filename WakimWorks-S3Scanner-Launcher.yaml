@@ -43,17 +43,86 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Sid: CloudFormationStackManagement
+                Effect: Allow
                 Action:
                   - cloudformation:CreateStack
                   - cloudformation:DescribeStacks
-                  - cloudformation:ListStacks
                   - cloudformation:DescribeStackEvents
-                  - s3:GetObject
-                  - ec2:TerminateInstances
-                  - sts:GetCallerIdentity
-                  - iam:GetRole
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListStacks
+                  - cloudformation:ListStackResources
+                  - cloudformation:DeleteStack
                 Resource: "*"
+
+              - Sid: IAMRoleAndPolicyCreation
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:AttachRolePolicy
+                  - iam:PutRolePolicy
+                  - iam:PassRole
+                  - iam:TagRole
+                  - iam:GetRole
+                  - iam:DeleteRolePolicy
+                  - iam:DeleteRole
+                Resource: "arn:aws:iam::*:role/S3SecurityScannerRole*"
+
+              - Sid: LambdaManagement
+                Effect: Allow
+                Action:
+                  - lambda:CreateFunction
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:GetFunction
+                  - lambda:DeleteFunction
+                  - lambda:AddPermission
+                  - lambda:RemovePermission
+                  - lambda:TagResource
+                Resource: "arn:aws:lambda:*:*:function:S3Scanner*"
+
+              - Sid: SNSManagement
+                Effect: Allow
+                Action:
+                  - sns:CreateTopic
+                  - sns:Subscribe
+                  - sns:Publish
+                  - sns:GetTopicAttributes
+                  - sns:SetTopicAttributes
+                  - sns:TagResource
+                Resource: "arn:aws:sns:*:*:S3Scanner*"
+
+              - Sid: SESPermissions
+                Effect: Allow
+                Action:
+                  - ses:CreateConfigurationSet
+                  - ses:DeleteConfigurationSet
+                  - ses:VerifyEmailIdentity
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+
+              - Sid: S3ReadTemplate
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - "arn:aws:s3:::judewakim-s3-misconfig/code/*"
+
+              - Sid: TaggingSupport
+                Effect: Allow
+                Action:
+                  - tag:GetResources
+                  - tag:TagResources
+                  - tag:UntagResources
+                Resource: "*"
+
+              - Sid: STSIdentity
+                Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: "*"
+
 
   # ------------------------------
   # EC2 Instance Profile
