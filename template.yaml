@@ -4,7 +4,7 @@ Description: CloudFormation template for S3 Security Scanner Lambda deployment
 Parameters:
   UserEmail:
     Type: String
-    Description: Your email address for receiving scan results (must be verified in SES)
+    Description: Your email address for receiving scan results
     AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
     ConstraintDescription: Must be a valid email address
   ExcludeBuckets:

@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  WakimWorks S3 Scanner Launcher:
+  - Creates IAM role for EC2 instance
+  - Launches EC2 instance from AMI
+  - Passes user parameters to AMI user-data script
+
+Parameters:
+  ExcludeBuckets:
+    Type: String
+    Description: "Comma-separated list of S3 bucket names (e.g., bucket1,bucket2)"
+    Default: ""
+  InnovationMode:
+    Type: String
+    Description: "Choose the EventBridge invocation mode: 'scanning_only' or 'scanning_and_autoremediation'"
+    Default: "scanning_only"
+    AllowedValues:
+      - "scanning_only"
+      - "scanning_and_autoremediation"
+  UserEmail:
+    Type: String
+    Description: "Email to receive scan notifications"
+    AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+    ConstraintDescription: Must be a valid email address
+
+Resources:
+  # ------------------------------
+  # IAM Role for EC2 Instance
+  # ------------------------------
+  S3ScannerLauncherRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3ScannerLauncherRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3ScannerLauncherPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ListStacks
+                  - cloudformation:DescribeStackEvents
+                  - s3:GetObject
+                  - ec2:TerminateInstances
+                Resource: "*"
+
+  # ------------------------------
+  # EC2 Instance Profile
+  # ------------------------------
+  S3ScannerInstanceProfile:
+    Type: AWS::EC2::InstanceProfile
+    Properties:
+      InstanceProfileName: S3ScannerLauncherInstanceProfile
+      Roles:
+        - Ref: S3ScannerLauncherRole
+
+  # ------------------------------
+  # EC2 Instance to launch the AMI
+  # ------------------------------
+  S3ScannerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t3.micro
+      IamInstanceProfile: !Ref S3ScannerInstanceProfile
+      ImageId: ami-0117fa5e2036cb173  
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+          STACK_NAME="S3ScannerDeployment"
+          TEMPLATE_URL="https://s3.amazonaws.com/judewakim-s3-misconfig/code/template.yaml"
+          REGION=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
+          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+
+          echo "Launching S3 Scanner stack..."
+          aws cloudformation create-stack \
+            --stack-name "$STACK_NAME" \
+            --template-url "$TEMPLATE_URL" \
+            --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
+            --region "$REGION" \
+            --parameters \
+              ParameterKey=ExcludeBuckets,ParameterValue="${ExcludeBuckets}" \
+              ParameterKey=InnovationMode,ParameterValue="${InnovationMode}" \
+              ParameterKey=UserEmail,ParameterValue="${UserEmail}"
+
+          aws cloudformation wait stack-create-complete \
+            --stack-name "$STACK_NAME" \
+            --region "$REGION"
+
+          echo "Stack created successfully. Terminating instance..."
+          aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region "$REGION"
+
+Outputs:
+  IAMRoleName:
+    Description: "IAM Role for EC2 instance"
+    Value: !Ref S3ScannerLauncherRole
+  EC2InstanceId:
+    Description: "ID of the launched EC2 instance (will terminate automatically)"
+    Value: !Ref S3ScannerInstance
