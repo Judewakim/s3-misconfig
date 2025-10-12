@@ -10,7 +10,7 @@ Parameters:
     Type: String
     Description: "Comma-separated list of S3 bucket names (e.g., bucket1,bucket2)"
     Default: ""
-  InnovationMode:
+  InvocationMode:
     Type: String
     Description: "Choose the EventBridge invocation mode: 'scanning_only' or 'scanning_and_autoremediation'"
     Default: "scanning_only"
@@ -83,10 +83,19 @@ Resources:
           TEMPLATE_URL="https://s3.amazonaws.com/judewakim-s3-misconfig/code/template.yaml"
           
           REGION="us-east-1" # Hardcoded for marketplace deplyment stability
-          ROLE_NAME=$(curl -s http://169.254.169.254/latest/meta-data/iam/info | jq -r .InstanceProfileArn)
-          echo "Detected Instance Profile: $ROLE_NAME"
-          INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-          echo "Instance ID detected: $INSTANCE_ID"
+          echo "Region: $REGION"
+
+          TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" \
+            -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+          echo "Token: $TOKEN"
+
+          ROLE_NAME=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+            http://169.254.169.254/latest/meta-data/iam/info | jq -r .InstanceProfileArn)
+          echo "Instance Profile: $ROLE_NAME"
+
+          INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+            http://169.254.169.254/latest/meta-data/instance-id)
+          echo "Instance ID: $INSTANCE_ID"
           
           # Wait for IAM role credentials to propagate
           sleep 60
@@ -104,7 +113,7 @@ Resources:
             --region "$REGION" \
             --parameters \
               ParameterKey=ExcludeBuckets,ParameterValue="${ExcludeBuckets}" \
-              ParameterKey=InnovationMode,ParameterValue="${InnovationMode}" \
+              ParameterKey=InvocationMode,ParameterValue="${InvocationMode}" \
               ParameterKey=UserEmail,ParameterValue="${UserEmail}"
 
           aws cloudformation wait stack-create-complete \
