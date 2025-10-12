@@ -51,6 +51,7 @@ Resources:
                   - cloudformation:DescribeStackEvents
                   - s3:GetObject
                   - ec2:TerminateInstances
+                  - sts:GetCallerIdentity
                 Resource: "*"
 
   # ------------------------------
@@ -81,14 +82,14 @@ Resources:
           STACK_NAME="S3ScannerDeployment"
           TEMPLATE_URL="https://s3.amazonaws.com/judewakim-s3-misconfig/code/template.yaml"
           
-          # Wait for IAM role credentials to propagate
-          sleep 15
-          
           REGION="us-east-1" # Hardcoded for marketplace deplyment stability
+          ROLE_NAME=$(curl -s http://169.254.169.254/latest/meta-data/iam/info | jq -r .InstanceProfileArn)
+          echo "Detected Instance Profile: $ROLE_NAME"
           INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-
-          echo "Region detected: $REGION"
           echo "Instance ID detected: $INSTANCE_ID"
+          
+          # Wait for IAM role credentials to propagate
+          sleep 60
           # Validate that IAM role credentials are available
           aws sts get-caller-identity --region "$REGION" || {
             echo "Error: IAM credentials not found. Verify the instance profile is attached properly."
