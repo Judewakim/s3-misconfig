@@ -84,13 +84,17 @@ Resources:
           # Wait for IAM role credentials to propagate
           sleep 15
           
-          REGION=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region)
+          REGION="us-east-1" # Hardcoded for marketplace deplyment stability
           INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 
           echo "Region detected: $REGION"
           echo "Instance ID detected: $INSTANCE_ID"
-          aws sts get-caller-identity --region "$REGION"
-          
+          # Validate that IAM role credentials are available
+          aws sts get-caller-identity --region "$REGION" || {
+            echo "Error: IAM credentials not found. Verify the instance profile is attached properly."
+            exit 1
+          }
+
           echo "Launching S3 Scanner stack..."
           aws cloudformation create-stack \
             --stack-name "$STACK_NAME" \
