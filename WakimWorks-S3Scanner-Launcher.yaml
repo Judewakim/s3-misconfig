@@ -91,6 +91,8 @@ Resources:
                 Action:
                   - events:PutRule
                   - events:DescribeRule
+                  - events:GetRule
+                  - events:PutTargets
                 Resource: "*"
 
               - Sid: SNSManagement
