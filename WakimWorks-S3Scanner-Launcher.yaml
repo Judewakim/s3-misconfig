@@ -57,7 +57,7 @@ Resources:
   # EC2 Instance Profile
   # ------------------------------
   S3ScannerInstanceProfile:
-    Type: AWS::EC2::InstanceProfile
+    Type: AWS::IAM::InstanceProfile
     Properties:
       InstanceProfileName: S3ScannerLauncherInstanceProfile
       Roles:
