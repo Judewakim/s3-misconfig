@@ -86,6 +86,13 @@ Resources:
                   - lambda:InvokeFunction
                 Resource: "arn:aws:lambda:*:*:function:S3SecurityScanner*"
 
+              - Sid: EventBridgeManagement
+                Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:DescribeRule
+                Resource: "*"
+
               - Sid: SNSManagement
                 Effect: Allow
                 Action:
