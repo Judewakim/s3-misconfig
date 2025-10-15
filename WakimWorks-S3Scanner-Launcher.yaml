@@ -22,6 +22,10 @@ Parameters:
     Description: "Email to receive scan notifications"
     AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
     ConstraintDescription: Must be a valid email address
+  AMIId:
+    Type: AWS::EC2::Image::Id
+    Description: "AMI ID to be used for launching the EC2 instance"
+    Default: ami-022919def8d680c1d
 
 Resources:
   # ------------------------------
@@ -156,7 +160,7 @@ Resources:
     Properties:
       InstanceType: t3.micro
       IamInstanceProfile: !Ref S3ScannerInstanceProfile
-      ImageId: ami-0117fa5e2036cb173  
+      ImageId: !Ref AMIId  
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
