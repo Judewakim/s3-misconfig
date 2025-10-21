@@ -1,0 +1,245 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Seller-side template for WakimWorks S3 Security Scanner - Central resources for scanning client accounts.
+
+Parameters:
+  LambdaCodeS3Bucket:
+    Type: String
+    Description: S3 bucket name containing the Lambda code zip (in your account).
+    Default: judewakim-s3-misconfig
+  LambdaCodeS3Key:
+    Type: String
+    Description: S3 key for the Lambda code zip (e.g., code/s3-misconfig.zip).
+    Default: code/s3-misconfig.zip
+  SenderEmail:
+    Type: String
+    Description: Verified SES sender email (e.g., scanner@wakimworks.com).
+    AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+    Default: scanner@wakimworks.com
+
+Resources:
+  # DynamoDB Table for Client Metadata
+  ClientMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: S3ScannerClientMetadata
+      AttributeDefinitions:
+        - AttributeName: AccountId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: AccountId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST  # On-demand for MVP
+
+  # SQS Queue for Registrations
+  RegistrationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: S3ScannerRegistrationQueue
+      VisibilityTimeout: 60  # Matches processor Lambda timeout
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  # SQS Queue Policy for Cross-Account Access
+  RegistrationQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref RegistrationQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AWS::AccountId  # Seller account for internal/testing
+            Action: sqs:SendMessage
+            Resource: !GetAtt RegistrationQueue.Arn
+          - Effect: Allow
+            Principal: '*'  # Broad for MVP; tighten to specific client account IDs later
+            Action: sqs:SendMessage
+            Resource: !GetAtt RegistrationQueue.Arn
+
+  # Dead Letter Queue
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: S3ScannerRegistrationDLQ
+
+  # Lambda to Process SQS Registrations
+  RegistrationProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: S3ScannerRegistrationProcessor
+      Handler: index.handler
+      Runtime: python3.12
+      Role: !GetAtt RegistrationProcessorRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from datetime import datetime
+
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('S3ScannerClientMetadata')
+
+          def handler(event, context):
+              for record in event['Records']:
+                  payload = json.loads(record['body'])
+                  if payload.get('Action') == 'register':
+                      table.put_item(
+                          Item={
+                              'AccountId': payload['AccountId'],
+                              'RoleArn': payload['RoleArn'],
+                              'Email': payload['Email'],
+                              'InvocationMode': payload['InvocationMode'],
+                              'ExcludeBuckets': payload['ExcludeBuckets'],
+                              'ExternalId': payload['ExternalId'],
+                              'RegisteredAt': datetime.utcnow().isoformat()
+                          }
+                      )
+              return {'status': 'Processed'}
+
+      Timeout: 60
+      MemorySize: 128
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref ClientMetadataTable
+
+  # Event Source Mapping for SQS to Processor Lambda
+  SqsEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt RegistrationQueue.Arn
+      FunctionName: !GetAtt RegistrationProcessorLambda.Arn
+      BatchSize: 10
+      MaximumBatchingWindowInSeconds: 30
+
+  # IAM Role for Registration Processor
+  RegistrationProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBWritePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                Resource: !GetAtt ClientMetadataTable.Arn
+        - PolicyName: SqsProcessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt RegistrationQueue.Arn
+
+  # Main Scanner Lambda
+  ScannerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: S3SecurityScanner
+      Handler: s3-misconfig.lambda_handler  # From your py file
+      Runtime: python3.12
+      Role: !GetAtt ScannerLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+      Timeout: 300  # Longer for potential multi-tenant
+      MemorySize: 256
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref ClientMetadataTable
+          SENDER_EMAIL: !Ref SenderEmail
+
+  # IAM Role for Scanner Lambda
+  ScannerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SecurityScannerLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ScannerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:GetItem
+                Resource: !GetAtt ClientMetadataTable.Arn
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: '*'  # Client roles; scope with conditions if needed
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+              - Effect: Allow
+                Action: sqs:ReceiveMessage
+                Resource: !GetAtt RegistrationQueue.Arn
+
+  # SQS Trigger for Immediate Scans
+  ScannerSqsTrigger:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt RegistrationQueue.Arn
+      FunctionName: !GetAtt ScannerLambda.Arn
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
+
+  # EventBridge Rule for Daily Scans
+  DailyScanRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: S3SecurityScannerDaily
+      ScheduleExpression: cron(0 2 * * ? *)  # 10 PM EDT (2 AM UTC)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ScannerLambda.Arn
+          Id: ScannerTarget
+          Input: '{"mode": "daily_scan"}'  # Lambda will query DynamoDB
+
+  # Permission for EventBridge to Invoke Scanner Lambda
+  EventBridgeInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ScannerLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt DailyScanRule.Arn
+
+Outputs:
+  RegistrationQueueUrl:
+    Description: URL of the SQS queue for client registrations (share with clients).
+    Value: !Ref RegistrationQueue
+  ScannerLambdaArn:
+    Description: ARN of the scanner Lambda.
+    Value: !GetAtt ScannerLambda.Arn
+  ClientMetadataTableName:
+    Description: Name of the DynamoDB table.
+    Value: !Ref ClientMetadataTable

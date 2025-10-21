@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Client-side template for WakimWorks S3 Security Scanner - Deploys IAM role for cross-account scanning and registers with seller.
+
+Parameters:
+  UserEmail:
+    Type: String
+    Description: Email address to receive scan results.
+    AllowedPattern: ^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$
+    ConstraintDescription: Must be a valid email address.
+  ExcludeBuckets:
+    Type: String
+    Description: Comma-separated list of S3 bucket names to exclude (e.g., bucket1,bucket2).
+    Default: ""
+  InvocationMode:
+    Type: String
+    Description: "Mode: 'scanning_only' or 'scanning_and_autoremediation'."
+    Default: "scanning_only"
+    AllowedValues:
+      - "scanning_only"
+      - "scanning_and_autoremediation"
+
+Conditions:
+  IsAutoRemediation: !Equals [!Ref InvocationMode, "scanning_and_autoremediation"]
+
+Resources:
+  # IAM Role for ExternalId Generator Lambda
+  ExternalIdGeneratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole  # Logs only
+  
+  # Lambda to Generate ExternalId (Email + Timestamp)
+  ExternalIdGeneratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ExternalIdGenerator
+      Handler: index.handler
+      Runtime: python3.12
+      Role: !GetAtt ExternalIdGeneratorRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import datetime
+          import cfnresponse
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Create':
+                      email = event['ResourceProperties']['UserEmail']
+                      timestamp = datetime.datetime.utcnow().isoformat()  # ISO 8601, e.g., 2025-10-18T23:14:00.123456
+                      external_id = f"{email}_{timestamp}"  # Combine email + timestamp
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {'ExternalId': external_id})
+                  else:
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})  # No-op for update/delete
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+      Timeout: 10
+      MemorySize: 128
+
+  # Custom Resource to Generate ExternalId
+  ExternalIdCustomResource:
+    Type: Custom::ExternalIdGenerator
+    Properties:
+      ServiceToken: !GetAtt ExternalIdGeneratorLambda.Arn
+      UserEmail: !Ref UserEmail  # Pass email to generate ExternalId
+
+  # IAM Role for Seller Lambda to Assume
+  ScannerAssumeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SecurityScannerClientRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::390488375643:role/S3SecurityScannerLambdaRole"  # Hardcoded seller account ID
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !GetAtt ExternalIdCustomResource.ExternalId  # Use generated ExternalId
+      Policies:
+        - PolicyName: S3ScanAndRemediatePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetPublicAccessBlock
+                  - s3:GetBucketEncryption
+                  - s3:GetBucketVersioning  # Future-proof
+                  - s3:GetObjectLockConfiguration  # Future-proof
+                  - s3:GetBucketLogging  # Future-proof
+                  - s3:GetReplicationConfiguration  # Future-proof
+                  - s3:GetBucketPolicyStatus  # Enhanced
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:PutPublicAccessBlock
+                  - s3:PutBucketAcl
+                  - s3:PutBucketPolicy
+                  - s3:PutBucketEncryption
+                  - s3:PutBucketVersioning  # Future-proof
+                  - s3:PutObjectLockConfiguration  # Future-proof
+                  - s3:PutBucketLogging  # Future-proof
+                  - s3:PutReplicationConfiguration  # Future-proof
+                Resource: '*'
+                Condition:
+                  Bool:
+                    aws:SecureTransport: 'true'  # Enforce HTTPS
+
+  # IAM Role for Registration Lambda
+  RegistrationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3ScannerRegistrationLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SqsSendPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !Sub "arn:aws:sqs:us-east-1:390488375643:S3ScannerRegistrationQueue"  # Hardcode seller account ID
+
+  # Lightweight Lambda for Registration
+  RegistrationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: S3ScannerRegistrationLambda
+      Handler: index.handler
+      Runtime: python3.12
+      Role: !GetAtt RegistrationLambdaRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import cfnresponse
+
+          sqs = boto3.client('sqs')
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      payload = {
+                          'AccountId': context.invoked_function_arn.split(':')[4],
+                          'RoleArn': event['ResourceProperties']['RoleArn'],
+                          'Email': event['ResourceProperties']['Email'],
+                          'InvocationMode': event['ResourceProperties']['InvocationMode'],
+                          'ExcludeBuckets': event['ResourceProperties']['ExcludeBuckets'],
+                          'ExternalId': event['ResourceProperties']['ExternalId'],  # Include ExternalId
+                          'Action': 'register'
+                      }
+                      sqs.send_message(
+                          QueueUrl=event['ResourceProperties']['SqsQueueUrl'],
+                          MessageBody=json.dumps(payload)
+                      )
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'Registered'})
+                  elif event['RequestType'] == 'Delete':
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'De-registered'})
+              except Exception as e:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+      Timeout: 30
+      MemorySize: 128
+
+  # Custom Resource to Trigger Registration
+  RegistrationCustomResource:
+    Type: Custom::Registration
+    Properties:
+      ServiceToken: !GetAtt RegistrationLambda.Arn
+      RoleArn: !GetAtt ScannerAssumeRole.Arn
+      Email: !Ref UserEmail
+      InvocationMode: !Ref InvocationMode
+      ExcludeBuckets: !Ref ExcludeBuckets
+      ExternalId: !GetAtt ExternalIdCustomResource.ExternalId  # Pass generated ExternalId
+      SqsQueueUrl: !Sub "https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerRegistrationQueue"  # Hardcode or provide via docs
+
+Outputs:
+  ScannerRoleArn:
+    Description: ARN of the assumeable role for scanning.
+    Value: !GetAtt ScannerAssumeRole.Arn
+  ExternalId:
+    Description: Generated ExternalId for assume-role.
+    Value: !GetAtt ExternalIdCustomResource.ExternalId
