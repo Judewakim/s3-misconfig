@@ -618,8 +618,7 @@ def process_client(client, ses_client):
             's3',
             aws_access_key_id=assumed_role['Credentials']['AccessKeyId'],
             aws_secret_access_key=assumed_role['Credentials']['SecretAccessKey'],
-            aws_session_token=assumed_role['Credentials']['SessionToken'],
-            region_name='us-east-1'
+            aws_session_token=assumed_role['Credentials']['SessionToken']
         )
 
         # Configure scan parameters
