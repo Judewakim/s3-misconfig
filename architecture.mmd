@@ -1,0 +1,38 @@
+graph TD
+    subgraph Seller_Account["Seller Account (390488375643)"]
+        A[("S3SecurityScanner<br>Lambda Function<br>(s3-misconfig.py)")]:::lambda
+        B[("S3ScannerClientMetadata<br>DynamoDB Table")]:::dynamodb
+        C[("SES<br>Email Service<br>scanner@wakimworks.com")]:::ses
+        D[("S3ScannerRegistrationQueue<br>SQS Queue")]:::sqs
+        E[("DailyScanRule<br>EventBridge Schedule<br>(10 PM EDT)")]:::eventbridge
+
+        A -->|Reads Client Metadata| B
+        A -->|Sends Scan Results| C
+        D -->|Immediate Trigger| A
+        E -->|Daily Trigger| A
+    end
+
+    subgraph Client_Account["Client Account (593814964473)"]
+        F[("RegistrationLambda<br>Custom Resource")]:::lambda
+        G[("S3SecurityScannerClientRole<br>IAM Role")]:::iam
+        H[("S3 Buckets<br>e.g., test-bucket-1")]:::s3
+        I[("Excluded Buckets<br>e.g., test-bucket-2")]:::s3excluded
+
+        F -->|Sends Registration| D
+        F -->|Writes Metadata| B
+        G -->|STS AssumeRole| A
+        G -->|Grants Access| H
+        I -->|Skipped| H
+    end
+
+    C -->|Delivers Email| J[("Client Email<br>your-test-email@example.com")]:::email
+
+    classDef lambda fill:#FF9900,stroke:#333,stroke-width:2px;
+    classDef dynamodb fill:#003087,stroke:#333,stroke-width:2px,color:#FFF;
+    classDef ses fill:#D62728,stroke:#333,stroke-width:2px,color:#FFF;
+    classDef sqs fill:#CC2264,stroke:#333,stroke-width:2px,color:#FFF;
+    classDef eventbridge fill:#1F77B4,stroke:#333,stroke-width:2px,color:#FFF;
+    classDef iam fill:#2CA02C,stroke:#333,stroke-width:2px,color:#FFF;
+    classDef s3 fill:#47A447,stroke:#333,stroke-width:2px,color:#FFF;
+    classDef s3excluded fill:#47A447,stroke:#333,stroke-width:2px,stroke-dasharray: 5,5;
+    classDef email fill:#9467BD,stroke:#333,stroke-width:2px,color:#FFF;

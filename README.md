@@ -1,86 +1,64 @@
-# S3 Security Scanner
+# WakimWorks S3 Security Scanner
 
-## Overview
-The S3 Security Scanner is a serverless AWS Lambda function designed to detect and optionally remediate misconfigurations in Amazon S3 buckets within a single AWS account. This tool helps solo developers and small teams ensure their S3 buckets are secure by identifying issues such as public access, wildcard policies, and lack of encryption, providing actionable insights via JSON output.
+WakimWorks S3 Security Scanner is a serverless AWS solution for scanning S3 buckets for misconfigurations across AWS accounts, available via the AWS Marketplace. It identifies security risks (e.g., public access, missing encryption) and optionally remediates them, delivering results via email. Built with AWS best practices, it supports secure cross-account scanning using STS assume-role, ideal for multi-tenant environments.
 
-## Architecture Diagram
+
+## Architecture
+The solution uses a seller-client architecture:
+
+- Seller Account: Hosts scanning logic, client metadata, and email notifications.
+- Client Account: Grants access to S3 buckets for scanning via an IAM role.
+
 ![S3 Security Scanner Architecture](architecture.png)
 
-The architecture consists of the following components:
-- **Lambda**: The core function that scans S3 buckets and applies fixes if configured.
-- **EventBridge (cron job)**: Triggers the Lambda function on a scheduled basis (e.g., daily).
-- **S3 API call**: The Lambda function interacts with the S3 service to check and update bucket configurations.
-- **SES (alerting)**: Sends email notifications based on the scan results (to be implemented in future versions).
 
-## Features
-- Scans all S3 buckets in the account for misconfigurations.
-- Detects:
-  - Disabled Public Access Block settings.
-  - Public ACLs granting access to `AllUsers` or `AuthenticatedUsers`.
-  - Wildcard (`*`) principals in bucket policies.
-  - Lack of default server-side encryption.
-- Outputs detailed JSON results summarizing risks per bucket.
-- Optional remediation via a `remediate` flag to fix identified issues safely.
-- Optional dry run via a `dry_run` flag to preview without changes.
-- Configurable exclusions for specific buckets.
+## Installation
+1. Deploy Client Stack
 
-## Getting Started
-### Prerequisites
-- AWS account with appropriate IAM permissions.
-- AWS CLI configured locally.
-- Python 3.8+ environment.
-- Git installed for version control.
+Deploy client-template.yaml in the client account: `aws cloudformation deploy --stack-name S3ScannerClient --template-file client-template.yaml --region us-east-1 --capabilities CAPABILITY_NAMED_IAM --parameter-overrides UserEmail=your-test-email@example.com ExcludeBuckets=test-bucket InvocationMode=scanning_only`
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Judewakim/s3-security-scanner.git
-   cd s3-security-scanner
-   ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Deploy the Lambda function using the provided CloudFormation template:
-   ```bash
-   aws cloudformation deploy --template-file s3-misconfig.yaml --stack-name s3-security-scanner --capabilities CAPABILITY_NAMED_IAM
-   ```
+#### Parameters:
+UserEmail: Email for scan results.
+ExcludeBuckets: Comma-separated list of buckets to skip (e.g., test-bucket,test-bucket-2).
+InvocationMode: scanning_only or scanning_and_autoremediation.
 
-### Usage
-- Deploy the stack via CloudFormation for daily EventBridge triggers
-- For ad hoc runs with custom settings, trigger the Lambda function manually via AWS CLI:
-  ```bash
-  aws lambda invoke --function-name S3SecurityScanner --payload '{"config": {"exclude_buckets": ["excluded-bucket-name", "other-excluded-bucket-name]}, "remediate": true, "dry_run": false}' output.json
-  ```
-- Check the output file `output.json` for scan results.
 
-### Configuration
-- Customize the scan by passing a `config` object in the event payload, e.g.:
-  ```json
-  {
-    "config": {
-      "exclude_buckets": ["logs-bucket"]
-    },
-    "remediate": false,
-    "dry_run": false
-  }
-  ```
+## Usage
 
-## Development
-- **Code**: Written in Python using Boto3 for AWS interactions.
-- **Version Control**: Managed with Git; commit often with descriptive messages.
-- **Testing**: Test locally with AWS CLI and in a sandbox AWS environment with misconfigured buckets.
+#### Automatic Scan:
+Deploying the client stack triggers an immediate scan via SQS (S3ScannerRegistrationQueue).
+Check the client email (your-test-email@example.com) for results.
 
-## Roadmap
-- **v1.0**: Initial release with basic scanning and remediation.
-- **v1.1**: Add email alerts via SES, support for multi-account scanning.
-- **v2.0**: Integrate ML for risk scoring, enhance UI with a simple dashboard.
+#### Daily Scan:
+EventBridge (DailyScanRule) triggers scans daily at 10 PM EDT.
 
-## Contributing
-Feel free to fork this repository, submit issues, or pull requests. Documentation and code contributions are welcome!
+#### Manual Testing:
+Invoke the scanner Lambda: `aws lambda invoke --function-name S3SecurityScanner --payload "eyJtb2RlIjogImRhaWx5X3NjYW4ifQ==" response.json --region us-east-1` 
+`cat response.json`
+
+
+## Security Considerations
+
+#### IAM Roles:
+S3SecurityScannerLambdaRole (seller): Grants DynamoDB, STS, SES, and SQS permissions.
+S3SecurityScannerClientRole (client): Allows S3 access with STS ExternalId for security.
+
+#### SQS Policy: 
+Restricts `sqs:SendMessage` to the client account for least privilege.
+
+#### SES: 
+Verify sender and recipient emails to avoid sandbox restrictions.
+
+#### STS ExternalId: 
+Unique per client, preventing confused deputy attacks.
+
+
+## Troubleshooting & Support
+Email: judewakim@wakimworks.com
+Website: https://www.wakimworks.com 
+
 
 ## License
-[MIT License] - See the LICENSE file for details.
-
-## Contact
-For questions or feedback, reach out via the GitHub Issues page or [Linkedin](https://www.linkedin.com/in/jude-wakim).
+MIT License. See LICENSE for details.
+Contributing
+Contributions are welcome! Submit issues or pull requests to https://www.github.com/judewakim/s3-misconfig.

@@ -35,7 +35,10 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: S3ScannerRegistrationQueue
-      VisibilityTimeout: 60  # Matches processor Lambda timeout
+      VisibilityTimeout: 360  # Must be >= Lambda timeout (300s) + buffer
+      MessageRetentionPeriod: 1209600  # 14 days, adjust as needed
+      ReceiveMessageWaitTimeSeconds: 0  # No long polling for Lambda
+      DelaySeconds: 0
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
         maxReceiveCount: 3
@@ -200,7 +203,10 @@ Resources:
                   - ses:SendRawEmail
                 Resource: "*"
               - Effect: Allow
-                Action: sqs:ReceiveMessage
+                Action: 
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ReceiveMessage
                 Resource: !GetAtt RegistrationQueue.Arn
 
   # SQS Trigger for Immediate Scans
@@ -209,6 +215,7 @@ Resources:
     Properties:
       EventSourceArn: !GetAtt RegistrationQueue.Arn
       FunctionName: !GetAtt ScannerLambda.Arn
+      Enabled: true
       BatchSize: 1
       MaximumBatchingWindowInSeconds: 0
 
