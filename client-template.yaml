@@ -104,8 +104,6 @@ Resources:
                   - s3:GetBucketLogging  # Future-proof
                   - s3:GetReplicationConfiguration  # Future-proof
                   - s3:GetBucketPolicyStatus  # Enhanced
-                  - kms:Decrypt 
-                  - kms:Encrypt 
                 Resource: '*'
               - Effect: Allow
                 Action:
