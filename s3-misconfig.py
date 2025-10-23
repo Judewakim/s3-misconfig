@@ -74,7 +74,7 @@ def process_client(client, ses_client):
         # Scan buckets
         bucket_risks = scan_buckets(s3_client, config)
         result['summary']['total_buckets'] = len(bucket_risks)
-        result['summary']['high_risk'] = sum(1 for b in bucket_risks if b.get('severity') == 'high')
+        result['summary']['high_risk'] = sum(1 for b in bucket_risks if b.get('severity') in ['high', 'error'])
         result['summary']['errors'] = sum(1 for b in bucket_risks if b.get('severity') == 'error')
         result['buckets'] = bucket_risks
 
@@ -470,7 +470,7 @@ def build_html_email_body(results, remediate):
         <h1>S3 Security Scanner Findings for Account {account_id}</h1>
         <p><strong>Timestamp:</strong> {timestamp}</p>
         <p><strong>Region:</strong> {region}</p>
-        <p><strong>Total Buckets:</strong> {total_buckets}</p>
+        <p><strong>Total Buckets Scanned:</strong> {total_buckets}</p>
     """
 
     if remediate and 'fixes' in results:
@@ -492,29 +492,55 @@ def build_html_email_body(results, remediate):
             """
         html += "</table>"
 
-    findings_by_severity = {'high': [], 'medium': [], 'low': [], 'none': [], 'error': []}
+    # Initialize findings by severity, including all buckets
+    findings_by_severity = {'error': [], 'high': [], 'medium': [], 'low': [], 'none': []}
     for bucket in results['buckets']:
-        if not bucket.get('skipped', False):
+        if bucket.get('skipped', False):
+            findings_by_severity['none'].append({
+                'bucket': bucket['name'],
+                'issue': 'SkippedBucket',
+                'risk': 'Bucket excluded from scanning',
+                'fix': 'Remove from ExcludeBuckets parameter to scan'
+            })
+        elif not bucket['risks']:
+            findings_by_severity['none'].append({
+                'bucket': bucket['name'],
+                'issue': 'NoIssues',
+                'risk': 'No misconfigurations detected',
+                'fix': 'No action needed'
+            })
+        else:
             for risk in bucket['risks']:
                 severity = 'high' if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled'] else \
-                      'medium' if risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled'] else \
-                      'error' if risk['type'].endswith('Error') else 'low'
-            risk_explanation, fix_command = get_risk_details(risk['type'], bucket['name'])
-            findings_by_severity[severity].append({
-                'bucket': bucket['name'],
-                'issue': risk['type'],
-                'risk': risk_explanation,
-                'fix': fix_command
-            })
+                        'medium' if risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled'] else \
+                        'error' if risk['type'].endswith('Error') else 'low'
+                risk_explanation, fix_command = get_risk_details(risk['type'], bucket['name'])
+                findings_by_severity[severity].append({
+                    'bucket': bucket['name'],
+                    'issue': risk['type'],
+                    'risk': risk_explanation,
+                    'fix': fix_command
+                })
 
     html += "<h2>Findings</h2>"
-    for severity in ['high', 'medium', 'low', 'none']:
-        if findings_by_severity[severity]:
-            html += f"""
-            <h3 class="{severity}">{severity.title()} Risk Issues</h3>
-            <table>
-                <tr><th>Severity</th><th>Bucket</th><th>Issue</th><th>Risk</th><th>Fix</th></tr>
+    for severity in ['error', 'high', 'medium', 'low']:
+        title = 'Low Risk Issues' if severity == 'low' else f"{severity.title()} Risk Issues"
+        html += f"""
+        <h3 class="{severity}">{title}</h3>
+        <table>
+            <tr><th>Severity</th><th>Bucket</th><th>Issue</th><th>Risk</th><th>Fix</th></tr>
+        """
+        if not findings_by_severity[severity]:
+            html += """
+            <tr>
+                <td class="{severity}">{severity.upper()}</td>
+                <td>N/A</td>
+                <td>NoIssues</td>
+                <td>No {severity} risk issues detected</td>
+                <td>No action needed</td>
+            </tr>
             """
+        else:
             for finding in findings_by_severity[severity]:
                 html += f"""
                 <tr>
@@ -525,7 +551,7 @@ def build_html_email_body(results, remediate):
                     <td><code>{finding['fix']}</code></td>
                 </tr>
                 """
-            html += "</table>"
+        html += "</table>"
 
     html += "</body></html>"
     return html
