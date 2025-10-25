@@ -122,26 +122,32 @@ Resources:
 
   # IAM Role for Registration Lambda
   RegistrationLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: S3ScannerRegistrationLambdaRole
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: SqsSendPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: sqs:SendMessage
-                Resource: !Sub "arn:aws:sqs:us-east-1:390488375643:S3ScannerRegistrationQueue"  # Hardcode seller account ID
+  Type: AWS::IAM::Role
+  Properties:
+    RoleName: S3ScannerRegistrationLambdaRole
+    AssumeRolePolicyDocument:
+      Version: '2012-10-17'
+      Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+    ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+    Policies:
+      - PolicyName: RegistrationPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+              Resource: arn:aws:dynamodb:us-east-1:390488375643:table/S3ScannerClientMetadata
+            - Effect: Allow
+              Action:
+                - sqs:SendMessage
+              Resource: arn:aws:sqs:us-east-1:390488375643:S3ScannerRegistrationQueue
 
   # Lightweight Lambda for Registration
   RegistrationLambda:
@@ -156,29 +162,60 @@ Resources:
           import json
           import boto3
           import cfnresponse
+          import logging
 
-          sqs = boto3.client('sqs')
+          # Set up logging
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger(__name__)
 
           def handler(event, context):
               try:
-                  if event['RequestType'] in ['Create', 'Update']:
-                      payload = {
-                          'AccountId': context.invoked_function_arn.split(':')[4],
-                          'RoleArn': event['ResourceProperties']['RoleArn'],
-                          'Email': event['ResourceProperties']['Email'],
-                          'InvocationMode': event['ResourceProperties']['InvocationMode'],
-                          'ExcludeBuckets': event['ResourceProperties']['ExcludeBuckets'],
-                          'ExternalId': event['ResourceProperties']['ExternalId'],  # Include ExternalId
-                          'Action': 'register'
-                      }
+                  # Initialize clients with explicit region
+                  sqs = boto3.client('sqs', region_name='us-east-1')
+                  dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+                  table = dynamodb.Table('S3ScannerClientMetadata')
+
+                  request_type = event['RequestType']
+                  props = event['ResourceProperties']
+
+                  # Validate required properties
+                  required_props = ['RoleArn', 'Email', 'InvocationMode', 'ExcludeBuckets', 'ExternalId', 'SqsQueueUrl']
+                  missing_props = [p for p in required_props if p not in props]
+                  if missing_props:
+                      raise ValueError(f"Missing required properties: {', '.join(missing_props)}")
+
+                  account_id = context.invoked_function_arn.split(':')[4]
+                  payload = {
+                      'AccountId': account_id,
+                      'RoleArn': props['RoleArn'],
+                      'Email': props['Email'],
+                      'InvocationMode': props['InvocationMode'],
+                      'ExcludeBuckets': props['ExcludeBuckets'],
+                      'ExternalId': props['ExternalId'],
+                      'Action': 'register'
+                  }
+
+                  if request_type in ['Create', 'Update']:
+                      # Write to DynamoDB
+                      table.put_item(Item=payload)
+                      logger.info(f"Wrote to DynamoDB: AccountId={account_id}")
+
+                      # Send SQS message
                       sqs.send_message(
-                          QueueUrl=event['ResourceProperties']['SqsQueueUrl'],
+                          QueueUrl=props['SqsQueueUrl'],
                           MessageBody=json.dumps(payload)
                       )
+                      logger.info(f"Sent SQS message for AccountId={account_id}")
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'Registered'})
-                  elif event['RequestType'] == 'Delete':
+
+                  elif request_type == 'Delete':
+                      # Delete from DynamoDB
+                      table.delete_item(Key={'AccountId': account_id})
+                      logger.info(f"Deleted from DynamoDB: AccountId={account_id}")
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'De-registered'})
+
               except Exception as e:
+                  logger.error(f"Error processing {request_type}: {str(e)}")
                   cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
       Timeout: 30
       MemorySize: 128

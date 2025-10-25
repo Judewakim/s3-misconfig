@@ -61,16 +61,6 @@ Resources:
             Principal: '*'  # Broad for MVP; tighten to specific client account IDs later
             Action: sqs:SendMessage
             Resource: !GetAtt RegistrationQueue.Arn
-          - Effort: Allow
-            Principal: 
-              Service: lambda.amazonaws.com
-            Action: 
-              - sqs:SendMessage
-              - sqs:ReceiveMessage
-              - sqs:DeleteMessage
-              - sqs:GetQueueAttributes
-              - sqs:GetQueueUrl
-            Resource: !GetAtt RegistrationQueue.Arn
 
   # Dead Letter Queue
   DeadLetterQueue:
