@@ -189,6 +189,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt RegistrationLambda.Arn
       RoleArn: !GetAtt ScannerAssumeRole.Arn
+      AccountId: !Ref AWS::AccountId
       Email: !Ref UserEmail
       InvocationMode: !Ref InvocationMode
       ExcludeBuckets: !Ref ExcludeBuckets
