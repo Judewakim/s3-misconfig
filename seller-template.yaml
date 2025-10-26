@@ -91,7 +91,7 @@ Resources:
         Statement:
           - Effect: Allow
             Principal: '*'
-            Action: sqs:SendMessage
+            Action: sqs:*
             Resource: !GetAtt S3ScannerQueue.Arn
 
   # DLQ for Scanner

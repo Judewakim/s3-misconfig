@@ -74,7 +74,7 @@ def process_client(client, ses_client):
         # Scan buckets
         bucket_risks = scan_buckets(s3_client, config)
         result['summary']['total_buckets'] = len(bucket_risks)
-        result['summary']['high_risk'] = sum(1 for b in bucket_risks if b.get('severity') in ['high', 'error'])
+        result['summary']['high_risk'] = sum(1 for b in bucket_risks if b.get('severity') in ['high'])
         result['summary']['errors'] = sum(1 for b in bucket_risks if b.get('severity') == 'error')
         result['buckets'] = bucket_risks
 
@@ -470,7 +470,7 @@ def build_html_email_body(results, remediate):
         <h1>S3 Security Scanner Findings for Account {account_id}</h1>
         <p><strong>Timestamp:</strong> {timestamp}</p>
         <p><strong>Region:</strong> {region}</p>
-        <p><strong>Total Buckets Scanned:</strong> {total_buckets}</p>
+        <p><strong>Total Buckets:</strong> {total_buckets}</p>
     """
 
     if remediate and 'fixes' in results:
@@ -493,7 +493,7 @@ def build_html_email_body(results, remediate):
         html += "</table>"
 
     # Initialize findings by severity, including all buckets
-    findings_by_severity = {'error': [], 'high': [], 'medium': [], 'low': [], 'none': []}
+    findings_by_severity = {'high': [], 'medium': [], 'low': [], 'error': [], 'none': []}
     for bucket in results['buckets']:
         if bucket.get('skipped', False):
             findings_by_severity['none'].append({
@@ -523,7 +523,7 @@ def build_html_email_body(results, remediate):
                 })
 
     html += "<h2>Findings</h2>"
-    for severity in ['error', 'high', 'medium', 'low']:
+    for severity in ['high', 'medium', 'low', 'error']:
         title = 'Low Risk Issues' if severity == 'low' else f"{severity.title()} Risk Issues"
         html += f"""
         <h3 class="{severity}">{title}</h3>
@@ -533,11 +533,11 @@ def build_html_email_body(results, remediate):
         if not findings_by_severity[severity]:
             html += """
             <tr>
-                <td class="{severity}">{severity.upper()}</td>
-                <td>N/A</td>
-                <td>NoIssues</td>
-                <td>No {severity} risk issues detected</td>
-                <td>No action needed</td>
+                <td> </td>
+                <td> </td>
+                <td> </td>
+                <td> </td>
+                <td> </td>
             </tr>
             """
         else:

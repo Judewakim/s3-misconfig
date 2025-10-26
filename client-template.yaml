@@ -88,33 +88,43 @@ Resources:
               StringEquals:
                 sts:ExternalId: !GetAtt ExternalIdCustomResource.ExternalId  # Use generated ExternalId
       Policies:
-        - PolicyName: S3ScanAndRemediatePolicy
+        # - PolicyName: S3ScanAndRemediatePolicy
+        #   PolicyDocument:
+        #     Version: '2012-10-17'
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - s3:ListAllMyBuckets
+        #           - s3:GetBucketAcl
+        #           - s3:GetBucketPolicy
+        #           - s3:GetPublicAccessBlock
+        #           - s3:GetBucketEncryption
+        #           - s3:GetBucketVersioning  # Future-proof
+        #           - s3:GetObjectLockConfiguration  # Future-proof
+        #           - s3:GetBucketLogging  # Future-proof
+        #           - s3:GetReplicationConfiguration  # Future-proof
+        #           - s3:GetBucketPolicyStatus  # Enhanced
+        #         Resource: '*'
+        #       - Effect: Allow
+        #         Action:
+        #           - s3:PutPublicAccessBlock
+        #           - s3:PutBucketAcl
+        #           - s3:PutBucketPolicy
+        #           - s3:PutBucketEncryption
+        #           - s3:PutBucketVersioning  # Future-proof
+        #           - s3:PutObjectLockConfiguration  # Future-proof
+        #           - s3:PutBucketLogging  # Future-proof
+        #           - s3:PutReplicationConfiguration  # Future-proof
+        #         Resource: '*'
+        #         Condition:
+        #           Bool:
+        #             aws:SecureTransport: 'true'  # Enforce HTTPS
+        - PolicyName: TestPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action:
-                  - s3:ListAllMyBuckets
-                  - s3:GetBucketAcl
-                  - s3:GetBucketPolicy
-                  - s3:GetPublicAccessBlock
-                  - s3:GetBucketEncryption
-                  - s3:GetBucketVersioning  # Future-proof
-                  - s3:GetObjectLockConfiguration  # Future-proof
-                  - s3:GetBucketLogging  # Future-proof
-                  - s3:GetReplicationConfiguration  # Future-proof
-                  - s3:GetBucketPolicyStatus  # Enhanced
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - s3:PutPublicAccessBlock
-                  - s3:PutBucketAcl
-                  - s3:PutBucketPolicy
-                  - s3:PutBucketEncryption
-                  - s3:PutBucketVersioning  # Future-proof
-                  - s3:PutObjectLockConfiguration  # Future-proof
-                  - s3:PutBucketLogging  # Future-proof
-                  - s3:PutReplicationConfiguration  # Future-proof
+                Action: '*'
                 Resource: '*'
                 Condition:
                   Bool:
@@ -150,7 +160,7 @@ Resources:
                 Resource:
                 - arn:aws:sqs:us-east-1:390488375643:S3ScannerRegistrationQueue
                 - arn:aws:sqs:us-east-1:390488375643:S3ScannerQueue
-                
+
   # Lightweight Lambda for Registration
   RegistrationLambda:
     Type: AWS::Lambda::Function
@@ -193,10 +203,10 @@ Resources:
                       QueueUrl=props['SqsQueueUrl'],  # RegistrationQueue
                       MessageBody=json.dumps(payload)
                   )
-                  sqs.send_message(
-                      QueueUrl='https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerQueue',
-                      MessageBody=json.dumps(payload)
-                  )
+                  # sqs.send_message(
+                  #     QueueUrl='https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerQueue',
+                  #     MessageBody=json.dumps(payload)
+                  # )
                   logger.info(f"Sent SQS message for AccountId={account_id}, Action={payload['Action']}")
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': payload['Action'].capitalize()})
               except Exception as e:
