@@ -67,6 +67,39 @@ Resources:
     Properties:
       QueueName: S3ScannerRegistrationDLQ
 
+  # SQS Queue for Scanner
+  S3ScannerQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: S3ScannerQueue
+      VisibilityTimeout: 360  # Must be >= Lambda timeout (300s) + buffer
+      MessageRetentionPeriod: 1209600  # 14 days, adjust as needed
+      ReceiveMessageWaitTimeSeconds: 0  # No long polling for Lambda
+      DelaySeconds: 0
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ScannerDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  # SQS Scanner Policy
+  ScannerQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref S3ScannerQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: sqs:SendMessage
+            Resource: !GetAtt S3ScannerQueue.Arn
+
+  # DLQ for Scanner
+  ScannerDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: S3ScannerDLQ
+
   # Lambda to Process SQS Registrations
   RegistrationProcessorLambda:
     Type: AWS::Lambda::Function
@@ -255,7 +288,7 @@ Resources:
   ScannerSqsTrigger:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      EventSourceArn: !GetAtt RegistrationQueue.Arn
+      EventSourceArn: !GetAtt S3ScannerQueue.Arn
       FunctionName: !GetAtt ScannerLambda.Arn
       Enabled: true
       BatchSize: 1
