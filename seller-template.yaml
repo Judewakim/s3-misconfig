@@ -53,8 +53,7 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
-            Principal:
-              AWS: !Ref AWS::AccountId  # Seller account for internal/testing
+            Principal: '*'
             Action: sqs:SendMessage
             Resource: !GetAtt RegistrationQueue.Arn
           - Effect: Allow
