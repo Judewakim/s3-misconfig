@@ -74,7 +74,13 @@ def process_client(client, ses_client):
         # Scan buckets
         bucket_risks = scan_buckets(s3_client, config)
         result['summary']['total_buckets'] = len(bucket_risks)
-        result['summary']['high_risk'] = sum(1 for b in bucket_risks if b.get('severity') in ['high'])
+        # Count individual high-risk issues
+        result['summary']['high_risk_issues'] = sum(
+            len([r for r in b['risks'] if r['type'] in [
+                'PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL',
+                'NoEncryption', 'VersioningDisabled'
+            ]]) for b in bucket_risks if not b.get('skipped')
+        )
         result['summary']['errors'] = sum(1 for b in bucket_risks if b.get('severity') == 'error')
         result['buckets'] = bucket_risks
 
@@ -422,11 +428,11 @@ def send_email_notification(email, results, remediate, ses_client):
             fixes = results.get('fixes', [])
             fixed_count = len([f for f in fixes if f['status'] == 'success'])
             needs_help_count = len([f for f in fixes if f['status'] in ['skipped', 'failed']])
-            remaining_high_risk = results['summary']['high_risk']
+            remaining_high_risk = results['summary']['high_risk_issues']
             total_needs_help = needs_help_count + remaining_high_risk
             subject = f"S3 Scan: {fixed_count} issues fixed, {total_needs_help} needs your help" if total_needs_help > 0 else f"S3 Scan: {fixed_count} issues fixed, All Clean"
         else:
-            high_risk_count = results['summary']['high_risk']
+            high_risk_count = results['summary']['high_risk_issues']
             subject = f"S3 Scan: {high_risk_count} high risk issues found" if high_risk_count > 0 else "S3 Scan: All Clean"
 
         html_body = build_html_email_body(results, remediate)
