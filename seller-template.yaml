@@ -53,8 +53,7 @@ Resources:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
-            Principal:
-              AWS: !Ref AWS::AccountId  # Seller account for internal/testing
+            Principal: '*'
             Action: sqs:SendMessage
             Resource: !GetAtt RegistrationQueue.Arn
           - Effect: Allow
@@ -68,6 +67,39 @@ Resources:
     Properties:
       QueueName: S3ScannerRegistrationDLQ
 
+  # SQS Queue for Scanner
+  S3ScannerQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: S3ScannerQueue
+      VisibilityTimeout: 360  # Must be >= Lambda timeout (300s) + buffer
+      MessageRetentionPeriod: 1209600  # 14 days, adjust as needed
+      ReceiveMessageWaitTimeSeconds: 0  # No long polling for Lambda
+      DelaySeconds: 0
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ScannerDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  # SQS Scanner Policy
+  ScannerQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref S3ScannerQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: sqs:*
+            Resource: !GetAtt S3ScannerQueue.Arn
+
+  # DLQ for Scanner
+  ScannerDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: S3ScannerDLQ
+
   # Lambda to Process SQS Registrations
   RegistrationProcessorLambda:
     Type: AWS::Lambda::Function
@@ -80,33 +112,74 @@ Resources:
         ZipFile: |
           import json
           import boto3
+          import os
           from datetime import datetime
+          import logging
 
-          dynamodb = boto3.resource('dynamodb')
-          table = dynamodb.Table('S3ScannerClientMetadata')
+          # Set up logging
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger(__name__)
 
           def handler(event, context):
-              for record in event['Records']:
-                  payload = json.loads(record['body'])
-                  if payload.get('Action') == 'register':
-                      table.put_item(
-                          Item={
-                              'AccountId': payload['AccountId'],
-                              'RoleArn': payload['RoleArn'],
-                              'Email': payload['Email'],
-                              'InvocationMode': payload['InvocationMode'],
-                              'ExcludeBuckets': payload['ExcludeBuckets'],
-                              'ExternalId': payload['ExternalId'],
-                              'RegisteredAt': datetime.utcnow().isoformat()
-                          }
-                      )
-              return {'status': 'Processed'}
+              try:
+                  # Initialize clients
+                  dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+                  sqs = boto3.client('sqs', region_name='us-east-1')
+                  table = dynamodb.Table(os.environ['DYNAMODB_TABLE'])
+                  queue_url = os.environ['SQS_QUEUE_URL']
 
+                  results = []
+                  for record in event['Records']:
+                      try:
+                          payload = json.loads(record['body'])
+                          action = payload.get('Action')
+                          account_id = payload.get('AccountId')
+
+                          if action == 'register':
+                              table.put_item(
+                                  Item={
+                                      'AccountId': payload['AccountId'],
+                                      'RoleArn': payload['RoleArn'],
+                                      'Email': payload['Email'],
+                                      'InvocationMode': payload['InvocationMode'],
+                                      'ExcludeBuckets': payload['ExcludeBuckets'],
+                                      'ExternalId': payload['ExternalId'],
+                                      'RegisteredAt': datetime.utcnow().isoformat()
+                                  }
+                              )
+                              logger.info(f"Wrote to DynamoDB: AccountId={account_id}")
+                              results.append({'account_id': account_id, 'status': 'registered'})
+                          elif action == 'deregister':
+                              table.delete_item(Key={'AccountId': account_id})
+                              logger.info(f"Deleted from DynamoDB: AccountId={account_id}")
+                              results.append({'account_id': account_id, 'status': 'deregistered'})
+                          else:
+                              logger.warning(f"Skipping unknown action: {action} for AccountId={account_id}")
+                              results.append({'account_id': account_id, 'status': 'skipped', 'reason': f"Unknown action: {action}"})
+
+                          # Delete SQS message
+                          sqs.delete_message(
+                              QueueUrl=queue_url,
+                              ReceiptHandle=record['receiptHandle']
+                          )
+                          logger.info(f"Deleted SQS message for AccountId={account_id}, Action={action}")
+
+                      except Exception as e:
+                          logger.error(f"Error processing message for AccountId={account_id}, Action={action}: {str(e)}")
+                          results.append({'account_id': account_id, 'status': 'error', 'reason': str(e)})
+                          # Continue to next message to avoid blocking
+
+                  return {'status': 'Processed', 'results': results}
+
+              except Exception as e:
+                  logger.error(f"Error in handler: {str(e)}")
+                  raise
       Timeout: 60
       MemorySize: 128
       Environment:
         Variables:
           DYNAMODB_TABLE: !Ref ClientMetadataTable
+          SQS_QUEUE_URL: !GetAtt RegistrationQueue.QueueUrl
 
   # Event Source Mapping for SQS to Processor Lambda
   SqsEventSource:
@@ -114,8 +187,9 @@ Resources:
     Properties:
       EventSourceArn: !GetAtt RegistrationQueue.Arn
       FunctionName: !GetAtt RegistrationProcessorLambda.Arn
-      BatchSize: 10
-      MaximumBatchingWindowInSeconds: 30
+      Enabled: true
+      BatchSize: 1
+      MaximumBatchingWindowInSeconds: 0
 
   # IAM Role for Registration Processor
   RegistrationProcessorRole:
@@ -139,6 +213,7 @@ Resources:
                 Action:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
+                  - dynamodb:deleteItem
                 Resource: !GetAtt ClientMetadataTable.Arn
         - PolicyName: SqsProcessPolicy
           PolicyDocument:
@@ -213,7 +288,7 @@ Resources:
   ScannerSqsTrigger:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      EventSourceArn: !GetAtt RegistrationQueue.Arn
+      EventSourceArn: !GetAtt S3ScannerQueue.Arn
       FunctionName: !GetAtt ScannerLambda.Arn
       Enabled: true
       BatchSize: 1

@@ -88,33 +88,43 @@ Resources:
               StringEquals:
                 sts:ExternalId: !GetAtt ExternalIdCustomResource.ExternalId  # Use generated ExternalId
       Policies:
-        - PolicyName: S3ScanAndRemediatePolicy
+        # - PolicyName: S3ScanAndRemediatePolicy
+        #   PolicyDocument:
+        #     Version: '2012-10-17'
+        #     Statement:
+        #       - Effect: Allow
+        #         Action:
+        #           - s3:ListAllMyBuckets
+        #           - s3:GetBucketAcl
+        #           - s3:GetBucketPolicy
+        #           - s3:GetPublicAccessBlock
+        #           - s3:GetBucketEncryption
+        #           - s3:GetBucketVersioning  # Future-proof
+        #           - s3:GetObjectLockConfiguration  # Future-proof
+        #           - s3:GetBucketLogging  # Future-proof
+        #           - s3:GetReplicationConfiguration  # Future-proof
+        #           - s3:GetBucketPolicyStatus  # Enhanced
+        #         Resource: '*'
+        #       - Effect: Allow
+        #         Action:
+        #           - s3:PutPublicAccessBlock
+        #           - s3:PutBucketAcl
+        #           - s3:PutBucketPolicy
+        #           - s3:PutBucketEncryption
+        #           - s3:PutBucketVersioning  # Future-proof
+        #           - s3:PutObjectLockConfiguration  # Future-proof
+        #           - s3:PutBucketLogging  # Future-proof
+        #           - s3:PutReplicationConfiguration  # Future-proof
+        #         Resource: '*'
+        #         Condition:
+        #           Bool:
+        #             aws:SecureTransport: 'true'  # Enforce HTTPS
+        - PolicyName: TestPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action:
-                  - s3:ListAllMyBuckets
-                  - s3:GetBucketAcl
-                  - s3:GetBucketPolicy
-                  - s3:GetPublicAccessBlock
-                  - s3:GetBucketEncryption
-                  - s3:GetBucketVersioning  # Future-proof
-                  - s3:GetObjectLockConfiguration  # Future-proof
-                  - s3:GetBucketLogging  # Future-proof
-                  - s3:GetReplicationConfiguration  # Future-proof
-                  - s3:GetBucketPolicyStatus  # Enhanced
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - s3:PutPublicAccessBlock
-                  - s3:PutBucketAcl
-                  - s3:PutBucketPolicy
-                  - s3:PutBucketEncryption
-                  - s3:PutBucketVersioning  # Future-proof
-                  - s3:PutObjectLockConfiguration  # Future-proof
-                  - s3:PutBucketLogging  # Future-proof
-                  - s3:PutReplicationConfiguration  # Future-proof
+                Action: '*'
                 Resource: '*'
                 Condition:
                   Bool:
@@ -135,13 +145,21 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: SqsSendPolicy
+        - PolicyName: RegistrationPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # - Effect: Allow
+              #   Action:
+              #     - dynamodb:PutItem
+              #     - dynamodb:DeleteItem
+              #   Resource: arn:aws:dynamodb:us-east-1:390488375643:table/S3ScannerClientMetadata
               - Effect: Allow
-                Action: sqs:SendMessage
-                Resource: !Sub "arn:aws:sqs:us-east-1:390488375643:S3ScannerRegistrationQueue"  # Hardcode seller account ID
+                Action:
+                  - sqs:SendMessage
+                Resource:
+                - arn:aws:sqs:us-east-1:390488375643:S3ScannerRegistrationQueue
+                - arn:aws:sqs:us-east-1:390488375643:S3ScannerQueue
 
   # Lightweight Lambda for Registration
   RegistrationLambda:
@@ -156,29 +174,43 @@ Resources:
           import json
           import boto3
           import cfnresponse
+          import logging
 
-          sqs = boto3.client('sqs')
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger(__name__)
 
           def handler(event, context):
               try:
-                  if event['RequestType'] in ['Create', 'Update']:
-                      payload = {
-                          'AccountId': context.invoked_function_arn.split(':')[4],
-                          'RoleArn': event['ResourceProperties']['RoleArn'],
-                          'Email': event['ResourceProperties']['Email'],
-                          'InvocationMode': event['ResourceProperties']['InvocationMode'],
-                          'ExcludeBuckets': event['ResourceProperties']['ExcludeBuckets'],
-                          'ExternalId': event['ResourceProperties']['ExternalId'],  # Include ExternalId
-                          'Action': 'register'
-                      }
-                      sqs.send_message(
-                          QueueUrl=event['ResourceProperties']['SqsQueueUrl'],
-                          MessageBody=json.dumps(payload)
-                      )
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'Registered'})
-                  elif event['RequestType'] == 'Delete':
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': 'De-registered'})
+                  sqs = boto3.client('sqs', region_name='us-east-1')
+                  request_type = event['RequestType']
+                  props = event['ResourceProperties']
+                  required_props = ['RoleArn', 'Email', 'InvocationMode', 'ExcludeBuckets', 'ExternalId', 'SqsQueueUrl']
+                  missing_props = [p for p in required_props if p not in props]
+                  if missing_props:
+                      raise ValueError(f"Missing required properties: {', '.join(missing_props)}")
+                  account_id = context.invoked_function_arn.split(':')[4]
+                  payload = {
+                      'AccountId': account_id,
+                      'RoleArn': props['RoleArn'],
+                      'Email': props['Email'],
+                      'InvocationMode': props['InvocationMode'],
+                      'ExcludeBuckets': props['ExcludeBuckets'],
+                      'ExternalId': props['ExternalId'],
+                      'Action': 'register' if request_type in ['Create', 'Update'] else 'deregister'
+                  }
+                  # Send to both queues
+                  sqs.send_message(
+                      QueueUrl=props['SqsQueueUrl'],  # RegistrationQueue
+                      MessageBody=json.dumps(payload)
+                  )
+                  # sqs.send_message(
+                  #     QueueUrl='https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerQueue',
+                  #     MessageBody=json.dumps(payload)
+                  # )
+                  logger.info(f"Sent SQS message for AccountId={account_id}, Action={payload['Action']}")
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': payload['Action'].capitalize()})
               except Exception as e:
+                  logger.error(f"Error processing {request_type}: {str(e)}")
                   cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
       Timeout: 30
       MemorySize: 128
@@ -189,11 +221,25 @@ Resources:
     Properties:
       ServiceToken: !GetAtt RegistrationLambda.Arn
       RoleArn: !GetAtt ScannerAssumeRole.Arn
+      AccountId: !Ref AWS::AccountId
       Email: !Ref UserEmail
       InvocationMode: !Ref InvocationMode
       ExcludeBuckets: !Ref ExcludeBuckets
       ExternalId: !GetAtt ExternalIdCustomResource.ExternalId  # Pass generated ExternalId
       SqsQueueUrl: !Sub "https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerRegistrationQueue"  # Hardcode or provide via docs
+
+  # ScannerCustomResource
+  ScannerCustomResource:
+    Type: Custom::ScannerTrigger
+    Properties:
+      ServiceToken: !GetAtt RegistrationLambda.Arn
+      RoleArn: !GetAtt ScannerAssumeRole.Arn
+      AccountId: !Ref AWS::AccountId
+      Email: !Ref UserEmail
+      InvocationMode: !Ref InvocationMode
+      ExcludeBuckets: !Ref ExcludeBuckets
+      ExternalId: !GetAtt ExternalIdCustomResource.ExternalId
+      SqsQueueUrl: !Sub "https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerQueue"
 
 Outputs:
   ScannerRoleArn:
