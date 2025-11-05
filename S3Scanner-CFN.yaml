@@ -1,0 +1,482 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Installer CFN for WakimWorks S3 Scanner AMI. It creates a Security Group, IAM Instance Role + InstanceProfile for the EC2 bootstrapper, launches EC2 from AMI (ami-04978d0ea95826de4) and passes UserEmail, InvocationMode, ExcludeBuckets as EC2 tags. The EC2 user-data runs the baked-in script in the AMI which deploys the client stack and self-terminates.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Scanner Configuration"
+        Parameters:
+          - UserEmail
+          - InvocationMode
+          - ExcludeBuckets
+          - SelfTerminate
+      - Label:
+          default: "Network & Access"
+        Parameters:
+          - VpcId
+          - SubnetId
+    ParameterLabels:
+      UserEmail:
+        default: "Notification Email"
+      InvocationMode:
+        default: "Invocation Mode"
+      ExcludeBuckets:
+        default: "Excluded S3 Buckets"
+      SelfTerminate:
+        default: "Self Terminate Instance on Success"
+      VpcId:
+        default: "VPC (default VPC will appear)"
+      SubnetId:
+        default: "Subnet for the instance (public recommended)"
+
+Parameters:
+  UserEmail:
+    Type: String
+    Description: Email address to receive daily scan results.
+    AllowedPattern: '^[^@]+@[^@]+\.[^@]+$'
+    ConstraintDescription: Must be a valid email address.
+
+  InvocationMode:
+    Type: String
+    Description: 'scanning_only or scanning_and_autoremediation'
+    AllowedValues:
+      - scanning_only
+      - scanning_and_autoremediation
+    Default: scanning_only
+
+  ExcludeBuckets:
+    Type: String
+    Description: Comma-separated S3 bucket names to exclude. Leave blank for none.
+    Default: ''
+
+  SelfTerminate:
+    Type: String
+    Description: Whether to terminate the EC2 instance after successful bootstrap (true/false).
+    AllowedValues: [ "true", "false" ]
+    Default: "true"
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC to launch the instance into (default VPC will be visible in dropdown).
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet to launch the instance into.
+
+  InstanceType:
+    Type: String
+    Description: EC2 instance type for the bootstrapper
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+    ConstraintDescription: Choose a supported instance type.
+
+Conditions:
+  EnableRemediation:
+    Fn::Equals:
+      - Ref: InvocationMode
+      - "scanning_and_autoremediation"
+
+Resources:
+
+  #### Security Group: no ingress, open egress
+  ScannerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Headless security group for S3Scanner AMI"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          FromPort: 0
+          ToPort: 0
+          CidrIp: 0.0.0.0/0
+
+  #### IAM Role + Instance Profile for EC2 bootstrapper
+  ScannerInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "S3ScannerInstanceRole-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        # SSM for troubleshooting
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ScannerCorePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # CloudFormation permissions - create and inspect stacks
+              - Sid: CloudFormationOps
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:ListStacks
+                  - cloudformation:ListStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:DescribeStackEvents
+                Resource: "*"
+
+              # IAM permissions: allow creating & attaching roles only for S3Scanner* role names in this account.
+              - Sid: IAMCreatePassScoped
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePolicy
+                  - iam:AttachRolePolicy
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource: "*"
+
+              # S3 read permissions required for scanning and fetching templates (broad listing)
+              - Sid: S3Read
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                Resource: "*"
+
+              - Sid: AllowCustomResourceToPhoneHome
+                Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:InvokeFunction
+                  - lambda:GetFunctionConfiguration
+                  - lambda:CreateFunction
+                  - lambda:DeleteFunction
+                  - lambda:UpdateFunctionCode
+                  - lambda:UpdateFunctionConfiguration
+                  - lambda:AddPermission
+                Resource: "*"
+
+              # Conditional S3 write permissions (note: creating objects or policies if remediation is enabled)
+              # We attach a separate policy resource below conditioned on EnableRemediation.
+              # CloudWatch Logs
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+
+              # EC2 (allow instance to check tags and terminate itself)
+              - Sid: EC2
+                Effect: Allow
+                Action:
+                  - ec2:TerminateInstances
+                  - ec2:DescribeInstances
+                  - ec2:DescribeTags
+                Resource: "*"
+
+              # SSM GetParameter or other read (optional)
+              - Sid: SSMRead
+                Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                Resource: "*"
+
+  # Conditional S3 write policy applied when remediation enabled
+  ScannerS3WritePolicy:
+    Condition: EnableRemediation
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub "S3Scanner-S3Write-${AWS::StackName}"
+      Roles:
+        - !Ref ScannerInstanceRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: S3Write
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:DeleteObject
+              - s3:PutObjectAcl
+              - s3:PutBucketPolicy
+              - s3:DeleteBucketPolicy
+            Resource: "*"
+
+  ScannerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref ScannerInstanceRole
+
+  #### EC2 Instance - headless, uses the AMI you provided and tags contain parameters
+  ScannerEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: "ami-04978d0ea95826de4"
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref ScannerInstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !Ref ScannerSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "S3ScannerBoot-${AWS::StackName}"
+        - Key: UserEmail
+          Value: !Ref UserEmail
+        - Key: InvocationMode
+          Value: !Ref InvocationMode
+        - Key: ExcludeBuckets
+          Value: !Ref ExcludeBuckets
+        - Key: SelfTerminate
+          Value: !Ref SelfTerminate
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash -xe
+          #=============================================================================
+          # WakimWorks S3 Security Scanner AMI User Data (AL2023)
+          #=============================================================================
+
+          set -euxo pipefail
+
+          # --- Logging: append and send to console/syslog ---
+          exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+          echo "=== S3 Scanner AMI Bootstrap START: $(date -u) ==="
+
+          # --------- Configurable test mode (set to true to override tags for testing) ----------
+          TEST_MODE=false
+          TEST_USER_EMAIL="test@example.com"
+          TEST_INVOCATION_MODE="scanning_only"
+          TEST_EXCLUDE_BUCKETS=""
+
+          # --- Globals / Defaults ---
+          INSTANCE_METADATA_URL="http://169.254.169.254/latest/meta-data"
+          TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s)
+          INSTANCE_ID=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id || true)
+          REGION=$(curl -fsSL -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/placement/region || true)
+
+          STACK_NAME="S3ScannerClient"
+          TEMPLATE_URL="https://s3.amazonaws.com/judewakim-s3-misconfig/code/client-template.yaml"
+
+          POLL_INTERVAL=10
+          MAX_WAIT_SECONDS=$((30 * 60))   # 30 minutes
+
+          # --- 1. Basic environment & dependencies ---
+          echo "Region: $REGION, InstanceId: $INSTANCE_ID"
+          echo "Installing essentials (dnf update + packages)..."
+          dnf -y update -x curl -x curl-minimal
+          dnf -y install python3 python3-pip jq unzip
+
+          if ! command -v aws >/dev/null 2>&1 || ! aws --version 2>&1 | grep -q "aws-cli/2"; then
+              echo "Installing AWS CLI v2..."
+              TMPDIR=$(mktemp -d)
+              pushd "$TMPDIR"
+              curl -fsS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              unzip -q awscliv2.zip
+              ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update || true
+              popd
+              rm -rf "$TMPDIR"
+          fi
+
+          if ! command -v jq >/dev/null 2>&1; then
+              echo "ERROR: jq not installed!"
+              exit 1
+          fi
+
+          if ! command -v cfn-signal >/dev/null 2>&1; then
+              echo "Attempting to install aws-cfn-bootstrap (may provide cfn-signal) via pip..."
+              pip3 install --upgrade aws-cfn-bootstrap || echo "aws-cfn-bootstrap pip install failed; continuing."
+          fi
+
+          # --- 2. Get optional CFN signal URL ---
+          CFN_SIGNAL_URL=$(curl -fsS "${INSTANCE_METADATA_URL}/cfn-signal-url" 2>/dev/null || echo "")
+          if [ -z "$CFN_SIGNAL_URL" ]; then
+              echo "No CFN_SIGNAL_URL metadata value found. Marketplace signaling will be skipped."
+          else
+              echo "CFN_SIGNAL_URL found."
+          fi
+
+          # --- 3. Fetch EC2 tags (user inputs) ---
+          echo "Fetching EC2 instance tags (will retry up to 5 minutes)..."
+          MAX_ATTEMPTS=40
+          SLEEP_SECONDS=8
+          TAGS_JSON=""
+
+          for ((i=1; i<=MAX_ATTEMPTS; i++)); do
+              echo "Attempt $i/$MAX_ATTEMPTS: describe-tags..."
+              TAGS_JSON=$(aws ec2 describe-tags \
+                  --filters "Name=resource-id,Values=$INSTANCE_ID" \
+                            "Name=resource-type,Values=instance" \
+                  --region "$REGION" --output json 2>&1)
+
+              EXIT_CODE=$?
+              echo "  → CLI exit code: $EXIT_CODE"
+              echo "  → Raw output: $TAGS_JSON"
+
+              if [ $EXIT_CODE -eq 0 ] && echo "$TAGS_JSON" | grep -q '"Tags":'; then
+                  if [ "$(echo "$TAGS_JSON" | jq -r '.Tags | length')" -gt 0 ]; then
+                      echo "SUCCESS: Tags found!"
+                      break
+                  fi
+              fi
+
+              echo "  → No tags or error. Sleeping ${SLEEP_SECONDS}s..."
+              sleep "$SLEEP_SECONDS"
+          done
+
+          if ! echo "$TAGS_JSON" | grep -q '"Tags":'; then
+              echo "FATAL: describe-tags never returned tags after $((MAX_ATTEMPTS * SLEEP_SECONDS)) seconds."
+              echo "Last output was:"
+              echo "$TAGS_JSON"
+              echo "Check IAM role has: ec2:DescribeTags on *"
+              exit 1
+          fi
+
+          USER_EMAIL=$(echo "$TAGS_JSON" | jq -r '.Tags[] | select(.Key=="UserEmail") | .Value' || true)
+          INVOCATION_MODE=$(echo "$TAGS_JSON" | jq -r '.Tags[] | select(.Key=="InvocationMode") | .Value' || true)
+          EXCLUDE_BUCKETS=$(echo "$TAGS_JSON" | jq -r '.Tags[] | select(.Key=="ExcludeBuckets") | .Value' || true)
+          SELF_TERMINATE_TAG=$(echo "$TAGS_JSON" | jq -r '.Tags[] | select(.Key=="SelfTerminate") | .Value' || true)
+
+          # Test-mode override (handy for local testing without tags)
+          if [ "${TEST_MODE}" = "true" ]; then
+              echo "TEST_MODE=true -> using test parameters instead of tags."
+              USER_EMAIL="${TEST_USER_EMAIL}"
+              INVOCATION_MODE="${TEST_INVOCATION_MODE}"
+              EXCLUDE_BUCKETS="${TEST_EXCLUDE_BUCKETS}"
+              SELF_TERMINATE_TAG="false"
+          fi
+
+          # Provide defaults where necessary
+          : "${INVOCATION_MODE:=scanning_only}"
+          : "${EXCLUDE_BUCKETS:=""}"
+          : "${SELF_TERMINATE_TAG:="true"}"
+
+          # Validate required parameter
+          if [ -z "$USER_EMAIL" ] || [ "$USER_EMAIL" = "null" ]; then
+              echo "ERROR: Required EC2 tag 'UserEmail' is missing or empty."
+              error_handler ${LINENO}
+          fi
+
+          echo "UserEmail: $USER_EMAIL"
+          echo "InvocationMode: $INVOCATION_MODE"
+          echo "ExcludeBuckets: $EXCLUDE_BUCKETS"
+          echo "SelfTerminateTag: $SELF_TERMINATE_TAG"
+
+          # --- 4. Deploy CloudFormation using template-url ---
+          echo "Deploying CloudFormation stack: ${STACK_NAME} using template-url: ${TEMPLATE_URL}"
+
+          aws cloudformation create-stack \
+              --stack-name "${STACK_NAME}" \
+              --template-url "${TEMPLATE_URL}" \
+              --parameters \
+                  ParameterKey=UserEmail,ParameterValue="${USER_EMAIL}" \
+                  ParameterKey=InvocationMode,ParameterValue="${INVOCATION_MODE}" \
+                  ParameterKey=ExcludeBuckets,ParameterValue="${EXCLUDE_BUCKETS}" \
+              --capabilities CAPABILITY_NAMED_IAM CAPABILITY_IAM \
+              --region "${REGION}"
+
+          # --- 5. Poll stack status with timeout ---
+          start_ts=$(date +%s)
+          while true; do
+              sleep "$POLL_INTERVAL"
+              now_ts=$(date +%s)
+              elapsed=$((now_ts - start_ts))
+
+              STACK_STATUS=$(aws cloudformation describe-stacks \
+                  --stack-name "${STACK_NAME}" --region "${REGION:-}" \
+                  --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "UNKNOWN")
+
+              echo "Stack status: ${STACK_STATUS} (elapsed ${elapsed}s)"
+
+              case "${STACK_STATUS}" in
+                  CREATE_COMPLETE|UPDATE_COMPLETE)
+                      echo "Stack completed successfully: ${STACK_STATUS}"
+                      if [ -n "$CFN_SIGNAL_URL" ]; then
+                          cfn-signal --exit-code 0 --reason "Deployment successful (stack ${STACK_STATUS})" "$CFN_SIGNAL_URL" || true
+                      fi
+                      break
+                      ;;
+                  CREATE_IN_PROGRESS|UPDATE_IN_PROGRESS|ROLLBACK_IN_PROGRESS|UPDATE_COMPLETE_CLEANUP_IN_PROGRESS)
+                      ;;
+                  CREATE_FAILED|ROLLBACK_COMPLETE|ROLLBACK_FAILED|DELETE_COMPLETE|DELETE_FAILED|UPDATE_ROLLBACK_FAILED|UPDATE_ROLLBACK_COMPLETE)
+                      echo "Stack reached failure state: ${STACK_STATUS}"
+                      if [ -n "$CFN_SIGNAL_URL" ]; then
+                          cfn-signal --exit-code 1 --reason "Stack failed with status ${STACK_STATUS}" "$CFN_SIGNAL_URL" || true
+                      fi
+                      exit 1
+                      ;;
+                  *)
+                      ;;
+              esac
+
+              if [ "$elapsed" -ge "$MAX_WAIT_SECONDS" ]; then
+                  echo "ERROR: Timeout waiting for stack to reach a terminal state (waited ${elapsed}s)."
+                  if [ -n "$CFN_SIGNAL_URL" ]; then
+                      cfn-signal --exit-code 1 --reason "Timeout waiting for stack - elapsed ${elapsed}s" "$CFN_SIGNAL_URL" || true
+                  fi
+                  exit 1
+              fi
+          done
+
+          # --- 6. Final verification ---
+          FINAL_STATUS=$(aws cloudformation describe-stacks --stack-name "${STACK_NAME}" --region "${REGION:-}" --query "Stacks[0].StackStatus" --output text || echo "UNKNOWN")
+          echo "Final CloudFormation status: ${FINAL_STATUS}"
+
+          # --- 7. Artifact and optional termination ---
+          echo "Deployment successful at $(date -u)" > /tmp/s3scanner-bootstrap-complete
+          echo "Stack status: ${FINAL_STATUS}" >> /tmp/s3scanner-bootstrap-complete
+
+          if [[ "${FINAL_STATUS}" == "CREATE_COMPLETE" || "${FINAL_STATUS}" == "UPDATE_COMPLETE" ]]; then
+              if [[ "${SELF_TERMINATE_TAG,,}" == "true" || "${SELF_TERMINATE_TAG,,}" == "yes" || "${SELF_TERMINATE_TAG}" == "1" ]]; then
+                  echo "Stack completed successfully and SelfTerminate=true — terminating instance ${INSTANCE_ID}..."
+                  if [ -n "$INSTANCE_ID" ]; then
+                      aws ec2 terminate-instances --instance-ids "$INSTANCE_ID" --region "${REGION:-}" || shutdown -h now || true
+                  else
+                      shutdown -h now || true
+                  fi
+              else
+                  echo "SelfTerminate tag set to '${SELF_TERMINATE_TAG}', skipping termination."
+              fi
+          else
+              echo "Final stack status ${FINAL_STATUS} not successful — skipping termination."
+          fi
+
+          echo "=== S3 Scanner AMI Bootstrap END: $(date -u) ==="
+
+
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance id for the bootstrap
+    Value: !Ref ScannerEC2Instance
+
+  InstancePublicIp:
+    Description: Public IP (if launched in public subnet)
+    Value: !GetAtt ScannerEC2Instance.PublicIp
+
+  InstanceRoleName:
+    Description: IAM role name attached to the instance
+    Value: !GetAtt ScannerInstanceRole.Arn
