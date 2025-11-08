@@ -4,11 +4,18 @@ from datetime import datetime
 import os
 from botocore.exceptions import ClientError
 import base64
+import urllib3
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 
 def lambda_handler(event, context):
+    # Detect CloudFormation custom resource invocation
+    if 'RequestType' in event and 'ResponseURL' in event:
+        print("Received CloudFormation custom resource event.")
+        send_cfn_response(event, 'SUCCESS', {'Message': 'Custom resource setup complete'})
+        return {'statusCode': 200}
+    
     # Initialize AWS clients
     dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
     table = dynamodb.Table('S3ScannerClientMetadata')
@@ -657,3 +664,24 @@ def get_risk_details(risk_type, bucket_name):
         )
     }
     return risk_details.get(risk_type, ('Unknown risk type', 'Manual review required'))
+
+def send_cfn_response(event, context, status, data):
+    """
+    Sends a response to the CloudFormation custom resource callback URL.
+    Prevents CloudFormation from hanging by confirming completion.
+    """
+    http = urllib3.PoolManager()
+    response_body = json.dumps({
+        'Status': status,
+        'Reason': f"See the details in CloudWatch Log Stream: {context.log_stream_name}",
+        'PhysicalResourceId': context.log_stream_name,
+        'StackId': event['StackId'],
+        'RequestId': event['RequestId'],
+        'LogicalResourceId': event['LogicalResourceId'],
+        'Data': data
+    })
+    try:
+        http.request('PUT', event['ResponseURL'], body=response_body, headers={'Content-Type': ''})
+        print(f"CloudFormation response sent: {status}")
+    except Exception as e:
+        print(f"Failed to send CloudFormation response: {str(e)}")
