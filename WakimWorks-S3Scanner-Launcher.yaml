@@ -25,7 +25,7 @@ Parameters:
   AMIId:
     Type: AWS::EC2::Image::Id
     Description: "AMI ID to be used for launching the EC2 instance"
-    Default: ami-022919def8d680c1d
+    Default: ami-04978d0ea95826de4
 
 Resources:
   # ------------------------------
