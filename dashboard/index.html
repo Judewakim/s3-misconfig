@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WakimWorks S3 Compliance Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #232f3e; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
+        h1 img { height: 40px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stat-card h3 { color: #666; font-size: 14px; margin-bottom: 10px; }
+        .stat-card .number { font-size: 32px; font-weight: bold; color: #d13212; }
+        .filters { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .filters input { padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 300px; }
+        table { width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        th { background: #232f3e; color: white; padding: 15px; text-align: left; }
+        td { padding: 15px; border-bottom: 1px solid #eee; }
+        tr:hover { background: #f9f9f9; }
+        .status { padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        .non-compliant { background: #ffeaea; color: #d13212; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .error { background: #ffeaea; color: #d13212; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .refresh { background: #ff9900; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; float: right; }
+        .refresh:hover { background: #ec7211; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1><img src="logo.png" alt="WakimWorks"> WakimWorks Compliance Dashboard</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <h3>Total Violations</h3>
+                <div class="number" id="totalViolations">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Affected Resources</h3>
+                <div class="number" id="affectedResources">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>Last Updated</h3>
+                <div class="number" style="font-size: 16px;" id="lastUpdated">-</div>
+            </div>
+        </div>
+
+        <div class="filters">
+            <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
+            <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
+        </div>
+
+        <div id="loading" class="loading">Loading compliance events...</div>
+        <div id="error" class="error" style="display:none;"></div>
+
+        <table id="eventsTable" style="display:none;">
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th>Rule Name</th>
+                    <th>HIPAA Control</th>
+                    <th>Resource ID</th>
+                    <th>Status</th>
+                    <th>Region</th>
+                </tr>
+            </thead>
+            <tbody id="eventsBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        const AUDIT_BUCKET = 'wakimworks-compliance-scanner-audit-logs';
+        const REGION = 'us-east-1';
+        let allEvents = [];
+
+        function getHIPAAControl(ruleName) {
+            const mapping = {
+                's3-bucket-public-read-prohibited': '164.308(a)(3)(i)',
+                's3-bucket-public-write-prohibited': '164.308(a)(3)(i)',
+                's3-bucket-server-side-encryption-enabled': '164.312(a)(2)(iv)',
+                's3-bucket-versioning-enabled': '164.308(a)(7)(ii)(A)',
+                's3-bucket-block-public-acl-enabled': '164.308(a)(3)(i)',
+                's3-bucket-logging-enabled': '164.312(b)'
+            };
+            return mapping[ruleName] || 'N/A';
+        }
+
+        async function loadEvents() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('eventsTable').style.display = 'none';
+
+            try {
+                const listUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/?list-type=2&prefix=compliance-events/`;
+                console.log('Fetching from:', listUrl);
+                const response = await fetch(listUrl);
+                console.log('List response status:', response.status);
+                const text = await response.text();
+                console.log('List response:', text.substring(0, 500));
+                
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(text, 'text/xml');
+                const keys = Array.from(xml.getElementsByTagName('Key')).map(k => k.textContent);
+                console.log('Found keys:', keys.length, keys);
+
+                allEvents = [];
+                for (const key of keys.slice(0, 100)) {
+                    const eventUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
+                    console.log('Fetching event:', eventUrl);
+                    const eventResponse = await fetch(eventUrl);
+                    const event = await eventResponse.json();
+                    console.log('Event:', event);
+                    allEvents.push(event);
+                }
+
+                allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                displayEvents(allEvents);
+                updateStats(allEvents);
+                
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('eventsTable').style.display = 'table';
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = `Error loading events: ${error.message}`;
+            }
+        }
+
+        function displayEvents(events) {
+            const tbody = document.getElementById('eventsBody');
+            tbody.innerHTML = '';
+            
+            events.forEach(event => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${new Date(event.timestamp).toLocaleString()}</td>
+                    <td>${event.configRuleName}</td>
+                    <td>${getHIPAAControl(event.configRuleName)}</td>
+                    <td>${event.resourceId}</td>
+                    <td><span class="status non-compliant">${event.complianceType}</span></td>
+                    <td>${event.awsRegion}</td>
+                `;
+            });
+        }
+
+        function updateStats(events) {
+            document.getElementById('totalViolations').textContent = events.length;
+            const uniqueResources = new Set(events.map(e => e.resourceId));
+            document.getElementById('affectedResources').textContent = uniqueResources.size;
+            if (events.length > 0) {
+                document.getElementById('lastUpdated').textContent = new Date(events[0].timestamp).toLocaleString();
+            }
+        }
+
+        function filterTable() {
+            const input = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = allEvents.filter(event => 
+                event.resourceId.toLowerCase().includes(input) ||
+                event.configRuleName.toLowerCase().includes(input)
+            );
+            displayEvents(filtered);
+        }
+
+        loadEvents();
+        setInterval(loadEvents, 30000);
+    </script>
+</body>
+</html>
