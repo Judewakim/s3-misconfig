@@ -59,6 +59,59 @@ Resources:
       TargetKeyId: !Ref ComplianceKMSKey
 
   # ============================================================================
+  # Compliance Dashboard (defined first to avoid circular dependency)
+  # ============================================================================
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AuditingBucketName}-dashboard'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-dashboard-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - Id: DashboardOrigin
+            DomainName: !GetAtt DashboardBucket.RegionalDomainName
+            S3OriginConfig: {}
+            OriginAccessControlId: !Ref OriginAccessControl
+        DefaultCacheBehavior:
+          TargetOriginId: DashboardOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+        DefaultRootObject: index.html
+        Enabled: true
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${DashboardBucket}/*"
+            Condition:
+              StringEquals:
+                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # ============================================================================
   # S3 Auditing Bucket
   # ============================================================================
   AuditingBucket:
@@ -73,7 +126,7 @@ Resources:
             BucketKeyEnabled: true
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: false
+        BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: false
       VersioningConfiguration:
@@ -91,7 +144,7 @@ Resources:
       CorsConfiguration:
         CorsRules:
           - AllowedOrigins:
-              - !Sub 'http://${DashboardBucket}.s3-website-${AWS::Region}.amazonaws.com'
+              - !Sub 'https://${CloudFrontDistribution.DomainName}'
             AllowedMethods:
               - GET
             AllowedHeaders:
@@ -143,11 +196,6 @@ Resources:
             Principal: '*'
             Action: s3:ListBucket
             Resource: !GetAtt AuditingBucket.Arn
-            # Condition:
-            #   StringLike:
-            #     's3:prefix':
-            #       - 'compliance-events/*'
-            #       - 'compliance-events'
           - Sid: DashboardGetComplianceEvents
             Effect: Allow
             Principal: '*'
@@ -418,12 +466,37 @@ Resources:
         ComplianceResourceTypes:
           - AWS::S3::Bucket
 
+  CustomBlockPublicAccessDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Name: WakimWorks-CustomBlockPublicAccess
+      Content:
+        schemaVersion: '0.3'
+        assumeRole: '{{ AutomationAssumeRole }}'
+        parameters:
+          S3BucketName:
+            type: String
+          AutomationAssumeRole:
+            type: String
+        mainSteps:
+          - name: BlockPublicAccess
+            action: 'aws:executeAwsApi'
+            inputs:
+              Service: s3
+              Api: PutPublicAccessBlock
+              BucketName: '{{ S3BucketName }}'
+              PublicAccessBlockConfiguration:
+                BlockPublicAcls: true
+                IgnorePublicAcls: true
+
   BlockPublicAclRemediation:
     Type: AWS::Config::RemediationConfiguration
     Properties:
       ConfigRuleName: !Ref BlockPublicAclRule
       TargetType: SSM_DOCUMENT
-      TargetId: AWS-DisableS3BucketPublicReadWrite
+      TargetId: !Ref CustomBlockPublicAccessDocument
       TargetVersion: '1'
       Parameters:
         AutomationAssumeRole:
@@ -450,34 +523,8 @@ Resources:
   #         - AWS::S3::Bucket
 
   # ============================================================================
-  # Compliance Dashboard
+  # Compliance Event Processing
   # ============================================================================
-  DashboardBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub '${AuditingBucketName}-dashboard'
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: false
-        BlockPublicPolicy: false
-        IgnorePublicAcls: false
-        RestrictPublicBuckets: false
-      WebsiteConfiguration:
-        IndexDocument: index.html
-        ErrorDocument: error.html
-
-  DashboardBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref DashboardBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: PublicReadGetObject
-            Effect: Allow
-            Principal: '*'
-            Action: s3:GetObject
-            Resource: !Sub '${DashboardBucket.Arn}/*'
-
   ComplianceEventLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -604,6 +651,6 @@ Outputs:
 
   DashboardURL:
     Description: Compliance Dashboard URL
-    Value: !Sub 'http://${DashboardBucket}.s3-website-${AWS::Region}.amazonaws.com'
+    Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
     Export:
       Name: !Sub '${AWS::StackName}-DashboardURL'
