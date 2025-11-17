@@ -1,0 +1,609 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'WakimWorks S3 Compliance Scanner - All-in-One Security & Remediation System'
+
+Parameters:
+  AuditingBucketName:
+    Type: String
+    Description: 'S3 bucket name for audit logs (must be globally unique)'
+    Default: 'wakimworks-compliance-scanner-audit-logs'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Compliance Configuration'
+        Parameters:
+          - AuditingBucketName
+
+Resources:
+  # ============================================================================
+  # KMS Key for Encryption
+  # ============================================================================
+  ComplianceKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: 'WakimWorks Compliance Scanner encryption key'
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow Config to use the key
+            Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Resource: '*'
+          - Sid: Allow CloudTrail to use the key
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action:
+              - 'kms:Decrypt'
+              - 'kms:GenerateDataKey'
+            Resource: '*'
+            Condition:
+              StringLike:
+                'kms:EncryptionContext:aws:cloudtrail:arn': !Sub 'arn:aws:cloudtrail:*:${AWS::AccountId}:trail/*'
+
+  ComplianceKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/wakimworks-compliance
+      TargetKeyId: !Ref ComplianceKMSKey
+
+  # ============================================================================
+  # S3 Auditing Bucket
+  # ============================================================================
+  AuditingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref AuditingBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt ComplianceKMSKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: false
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: false
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: GLACIER
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 365
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - !Sub 'http://${DashboardBucket}.s3-website-${AWS::Region}.amazonaws.com'
+            AllowedMethods:
+              - GET
+            AllowedHeaders:
+              - '*'
+            MaxAge: 3000
+
+  AuditingBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DependsOn: AuditingBucket
+    Properties:
+      Bucket: !Ref AuditingBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AWSConfigBucketPermissions
+            Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action:
+              - s3:GetBucketAcl
+              - s3:ListBucket
+            Resource: !GetAtt AuditingBucket.Arn
+          - Sid: AWSConfigPutObject
+            Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${AuditingBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AuditingBucket.Arn
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${AuditingBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+          - Sid: DashboardListComplianceEvents
+            Effect: Allow
+            Principal: '*'
+            Action: s3:ListBucket
+            Resource: !GetAtt AuditingBucket.Arn
+            # Condition:
+            #   StringLike:
+            #     's3:prefix':
+            #       - 'compliance-events/*'
+            #       - 'compliance-events'
+          - Sid: DashboardGetComplianceEvents
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${AuditingBucket.Arn}/compliance-events/*'
+
+  # ============================================================================
+  # CloudTrail for S3 Data Events
+  # ============================================================================
+  ComplianceTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: AuditingBucketPolicy
+    Properties:
+      TrailName: wakimworks-s3-compliance-trail
+      S3BucketName: !Ref AuditingBucket
+      IsLogging: true
+      IsMultiRegionTrail: false
+      IncludeGlobalServiceEvents: false
+      AdvancedEventSelectors:
+        - Name: S3DataEvents
+          FieldSelectors:
+            - Field: eventCategory
+              Equals:
+                - Data
+            - Field: resources.type
+              Equals:
+                - AWS::S3::Object
+      KMSKeyId: !GetAtt ComplianceKMSKey.Arn
+
+  # ============================================================================
+  # IAM Role for Config
+  # ============================================================================
+  ConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: WakimWorksConfigRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: config.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWS_ConfigRole
+      Policies:
+        - PolicyName: ConfigS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketVersioning
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - !GetAtt AuditingBucket.Arn
+                  - !Sub '${AuditingBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                  - kms:GenerateDataKey
+                Resource: !GetAtt ComplianceKMSKey.Arn
+
+  # ============================================================================
+  # AWS Config Setup
+  # ============================================================================
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      Name: wakimworks-config-recorder
+      RoleARN: !GetAtt ConfigRole.Arn
+      RecordingGroup:
+        AllSupported: false
+        IncludeGlobalResourceTypes: false
+        ResourceTypes:
+          - AWS::S3::Bucket
+
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    Properties:
+      Name: wakimworks-delivery-channel
+      S3BucketName: !Ref AuditingBucket
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: TwentyFour_Hours
+
+  # ============================================================================
+  # IAM Role for SSM Automation Remediation
+  # ============================================================================
+  SSMRemediationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: WakimWorksSSMRemediationRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ssm.amazonaws.com
+                - config.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole
+      Policies:
+        - PolicyName: S3RemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketVersioning
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutBucketAcl
+                  - s3:GetBucket*
+                  - s3:ListBucket
+                Resource: 'arn:aws:s3:::*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: !Sub 'arn:aws:iam::${AWS::AccountId}:role/WakimWorksSSMRemediationRole'
+
+  # ============================================================================
+  # Config Rules with SSM Remediation
+  # ============================================================================
+  PublicReadRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-public-read-prohibited
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_PUBLIC_READ_PROHIBITED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  PublicReadRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref PublicReadRule
+      TargetType: SSM_DOCUMENT
+      TargetId: AWS-DisableS3BucketPublicReadWrite
+      TargetVersion: '1'
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMRemediationRole.Arn
+        S3BucketName:
+          ResourceValue:
+            Value: RESOURCE_ID
+      Automatic: true
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 60
+
+  PublicWriteRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-public-write-prohibited
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_PUBLIC_WRITE_PROHIBITED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  PublicWriteRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref PublicWriteRule
+      TargetType: SSM_DOCUMENT
+      TargetId: AWS-DisableS3BucketPublicReadWrite
+      TargetVersion: '1'
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMRemediationRole.Arn
+        S3BucketName:
+          ResourceValue:
+            Value: RESOURCE_ID
+      Automatic: true
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 60
+
+  EncryptionRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-server-side-encryption-enabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_SERVER_SIDE_ENCRYPTION_ENABLED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  EncryptionRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref EncryptionRule
+      TargetType: SSM_DOCUMENT
+      TargetId: AWS-EnableS3BucketEncryption
+      TargetVersion: '1'
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMRemediationRole.Arn
+        BucketName:
+          ResourceValue:
+            Value: RESOURCE_ID
+        SSEAlgorithm:
+          StaticValue:
+            Values:
+              - AES256
+      Automatic: true
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 60
+
+  VersioningRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-versioning-enabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_VERSIONING_ENABLED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  VersioningRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref VersioningRule
+      TargetType: SSM_DOCUMENT
+      TargetId: AWS-ConfigureS3BucketVersioning
+      TargetVersion: '1'
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMRemediationRole.Arn
+        BucketName:
+          ResourceValue:
+            Value: RESOURCE_ID
+        VersioningState:
+          StaticValue:
+            Values:
+              - Enabled
+      Automatic: true
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 60
+
+  BlockPublicAclRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-block-public-acl-enabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_LEVEL_PUBLIC_ACCESS_PROHIBITED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  BlockPublicAclRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref BlockPublicAclRule
+      TargetType: SSM_DOCUMENT
+      TargetId: AWS-DisableS3BucketPublicReadWrite
+      TargetVersion: '1'
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMRemediationRole.Arn
+        S3BucketName:
+          ResourceValue:
+            Value: RESOURCE_ID
+      Automatic: true
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 60
+
+  # LoggingRule:
+  #   Type: AWS::Config::ConfigRule
+  #   DependsOn: ConfigRecorder
+  #   Properties:
+  #     ConfigRuleName: s3-bucket-logging-enabled
+  #     Source:
+  #       Owner: AWS
+  #       SourceIdentifier: S3_BUCKET_LOGGING_ENABLED
+  #     Scope:
+  #       ComplianceResourceTypes:
+  #         - AWS::S3::Bucket
+
+  # ============================================================================
+  # Compliance Dashboard
+  # ============================================================================
+  DashboardBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AuditingBucketName}-dashboard'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+
+  DashboardBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DashboardBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub '${DashboardBucket.Arn}/*'
+
+  ComplianceEventLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: WakimWorksComplianceEventRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3WriteComplianceEvents
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub '${AuditingBucket.Arn}/compliance-events/*'
+
+  ComplianceEventLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: wakimworks-compliance-event-logger
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt ComplianceEventLambdaRole.Arn
+      Timeout: 10
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref AuditingBucket
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import os
+          from datetime import datetime
+          
+          s3 = boto3.client('s3')
+          bucket = os.environ['BUCKET_NAME']
+          
+          def lambda_handler(event, context):
+              print(f"Event: {json.dumps(event)}")
+              
+              detail = event['detail']
+              timestamp = datetime.utcnow().isoformat()
+              
+              compliance_event = {
+                  'timestamp': timestamp,
+                  'configRuleName': detail['configRuleName'],
+                  'resourceType': detail['resourceType'],
+                  'resourceId': detail['resourceId'],
+                  'complianceType': detail['newEvaluationResult']['complianceType'],
+                  'awsRegion': detail['awsRegion'],
+                  'awsAccountId': detail['awsAccountId']
+              }
+              
+              key = f"compliance-events/{timestamp.replace(':', '-')}_{detail['resourceId']}.json"
+              
+              s3.put_object(
+                  Bucket=bucket,
+                  Key=key,
+                  Body=json.dumps(compliance_event),
+                  ContentType='application/json',
+                  ServerSideEncryption='AES256'
+              )
+              
+              return {'statusCode': 200}
+
+  ComplianceEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: wakimworks-compliance-event-logger
+      Description: Log Config compliance changes to S3
+      EventPattern:
+        source:
+          - aws.config
+        detail-type:
+          - Config Rules Compliance Change
+        detail:
+          newEvaluationResult:
+            complianceType:
+              - NON_COMPLIANT
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ComplianceEventLambda.Arn
+          Id: ComplianceEventLambdaTarget
+
+  ComplianceEventLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ComplianceEventLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ComplianceEventRule.Arn
+
+Outputs:
+  ConfigRecorderName:
+    Description: Config Recorder Name
+    Value: !Ref ConfigRecorder
+    Export:
+      Name: !Sub '${AWS::StackName}-ConfigRecorderName'
+
+  SSMRemediationRoleARN:
+    Description: SSM Automation Remediation Role ARN
+    Value: !GetAtt SSMRemediationRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-SSMRemediationRoleARN'
+
+  AuditingBucketName:
+    Description: S3 Auditing Bucket Name
+    Value: !Ref AuditingBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-AuditingBucket'
+
+  KMSKeyARN:
+    Description: KMS Key ARN for encryption
+    Value: !GetAtt ComplianceKMSKey.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-KMSKeyARN'
+
+  DashboardURL:
+    Description: Compliance Dashboard URL
+    Value: !Sub 'http://${DashboardBucket}.s3-website-${AWS::Region}.amazonaws.com'
+    Export:
+      Name: !Sub '${AWS::StackName}-DashboardURL'
