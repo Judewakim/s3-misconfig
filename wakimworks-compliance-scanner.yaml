@@ -126,7 +126,7 @@ Resources:
             BucketKeyEnabled: true
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
+        BlockPublicPolicy: false
         IgnorePublicAcls: true
         RestrictPublicBuckets: false
       VersioningConfiguration:
@@ -339,7 +339,7 @@ Resources:
     Properties:
       ConfigRuleName: !Ref PublicReadRule
       TargetType: SSM_DOCUMENT
-      TargetId: AWS-DisableS3BucketPublicReadWrite
+      TargetId: !Ref CustomBlockPublicAccessDocument
       TargetVersion: '1'
       Parameters:
         AutomationAssumeRole:
@@ -370,7 +370,7 @@ Resources:
     Properties:
       ConfigRuleName: !Ref PublicWriteRule
       TargetType: SSM_DOCUMENT
-      TargetId: AWS-DisableS3BucketPublicReadWrite
+      TargetId: !Ref CustomBlockPublicAccessDocument
       TargetVersion: '1'
       Parameters:
         AutomationAssumeRole:
