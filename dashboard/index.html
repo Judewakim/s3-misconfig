@@ -6,74 +6,140 @@
     <title>WakimWorks S3 Compliance Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        body { font-family: Arial, sans-serif; background: white; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
-        h1 { color: #232f3e; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
+        h1 { color: black; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
         h1 img { height: 40px; }
+        
+        .nav-tabs { display: flex; width: 100%; margin-bottom: 30px; border-bottom: 2px solid black; }
+        .nav-tab { flex: 1; padding: 15px; text-align: center; background: white; border: 2px solid black; border-bottom: none; cursor: pointer; font-weight: bold; transition: all 0.3s; }
+        .nav-tab:hover { background: #2ca02c; color: white; }
+        .nav-tab.active { background: #2ca02c; color: white; }
+        .nav-tab:not(:last-child) { border-right: none; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
         .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px; }
-        .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stat-card { background: white; padding: 20px; border: 2px solid black; border-radius: 8px; }
         .stat-card h3 { color: #666; font-size: 14px; margin-bottom: 10px; }
-        .stat-card .number { font-size: 32px; font-weight: bold; color: #d13212; }
-        .filters { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .filters input { padding: 10px; border: 1px solid #ddd; border-radius: 4px; width: 300px; }
-        table { width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        th { background: #232f3e; color: white; padding: 15px; text-align: left; }
+        .stat-card .number { font-size: 32px; font-weight: bold; color: #2ca02c; }
+        .filters { background: white; padding: 20px; border: 2px solid black; border-radius: 8px; margin-bottom: 20px; }
+        .filters input { padding: 10px; border: 2px solid black; border-radius: 4px; width: 300px; }
+        table { width: 100%; background: white; border: 2px solid black; border-radius: 8px; overflow: hidden; }
+        th { background: black; color: white; padding: 15px; text-align: left; }
         td { padding: 15px; border-bottom: 1px solid #eee; }
-        tr:hover { background: #f9f9f9; }
+        tr:hover { background: #f0f0f0; }
         .status { padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; }
-        .non-compliant { background: #ffeaea; color: #d13212; }
+        .non-compliant { background: #ffebee; color: #d32f2f; }
         .loading { text-align: center; padding: 40px; color: #666; }
-        .error { background: #ffeaea; color: #d13212; padding: 20px; border-radius: 8px; margin: 20px 0; }
-        .refresh { background: #ff9900; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; float: right; }
-        .refresh:hover { background: #ec7211; }
+        .error { background: #ffebee; color: #d32f2f; padding: 20px; border: 2px solid #d32f2f; border-radius: 8px; margin: 20px 0; }
+        .refresh { background: #2ca02c; color: white; border: 2px solid black; padding: 10px 20px; border-radius: 4px; cursor: pointer; float: right; }
+        .refresh:hover { background: #1e7e1e; }
+        
+        .placeholder { padding: 40px; text-align: center; color: #666; border: 2px solid black; border-radius: 8px; background: white; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1><img src="logo.png" alt="WakimWorks"> WakimWorks Compliance Dashboard</h1>
         
-        <div class="stats">
-            <div class="stat-card">
-                <h3>Total Violations</h3>
-                <div class="number" id="totalViolations">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Affected Resources</h3>
-                <div class="number" id="affectedResources">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Last Updated</h3>
-                <div class="number" style="font-size: 16px;" id="lastUpdated">-</div>
+        <div class="nav-tabs">
+            <div class="nav-tab active" onclick="showTab('summary')">Summary</div>
+            <div class="nav-tab" onclick="showTab('technical')">Technical Controls</div>
+            <div class="nav-tab" onclick="showTab('operational')">Operational Controls</div>
+            <div class="nav-tab" onclick="showTab('administration')">Administration Controls</div>
+            <div class="nav-tab" onclick="showTab('profile')">Profile</div>
+        </div>
+        
+        <div id="summary" class="tab-content active">
+            <div class="placeholder">
+                <h2>Summary Dashboard</h2>
+                <p>Overview and summary metrics will be displayed here.</p>
             </div>
         </div>
+        
+        <div id="technical" class="tab-content">
+            <div class="stats">
+                <div class="stat-card">
+                    <h3>Total Violations</h3>
+                    <div class="number" id="totalViolations">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Affected Resources</h3>
+                    <div class="number" id="affectedResources">0</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Last Updated</h3>
+                    <div class="number" style="font-size: 16px;" id="lastUpdated">-</div>
+                </div>
+            </div>
 
-        <div class="filters">
-            <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
-            <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
+            <div class="filters">
+                <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
+                <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
+            </div>
+
+            <div id="loading" class="loading">Loading compliance events...</div>
+            <div id="error" class="error" style="display:none;"></div>
+
+            <table id="eventsTable" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Rule Name</th>
+                        <th>HIPAA Control</th>
+                        <th>Resource ID</th>
+                        <th>Status</th>
+                        <th>Region</th>
+                    </tr>
+                </thead>
+                <tbody id="eventsBody"></tbody>
+            </table>
         </div>
-
-        <div id="loading" class="loading">Loading compliance events...</div>
-        <div id="error" class="error" style="display:none;"></div>
-
-        <table id="eventsTable" style="display:none;">
-            <thead>
-                <tr>
-                    <th>Timestamp</th>
-                    <th>Rule Name</th>
-                    <th>HIPAA Control</th>
-                    <th>Resource ID</th>
-                    <th>Status</th>
-                    <th>Region</th>
-                </tr>
-            </thead>
-            <tbody id="eventsBody"></tbody>
-        </table>
+        
+        <div id="operational" class="tab-content">
+            <div class="placeholder">
+                <h2>Operational Controls</h2>
+                <p>Operational security controls and monitoring will be displayed here.</p>
+            </div>
+        </div>
+        
+        <div id="administration" class="tab-content">
+            <div class="placeholder">
+                <h2>Administration Controls</h2>
+                <p>Administrative controls and governance will be displayed here.</p>
+            </div>
+        </div>
+        
+        <div id="profile" class="tab-content">
+            <div class="placeholder">
+                <h2>Profile Settings</h2>
+                <p>User profile and configuration settings will be displayed here.</p>
+            </div>
+        </div>
     </div>
 
     <script>
         const AUDIT_BUCKET = 'wakimworks-compliance-scanner-audit-logs';
         const REGION = 'us-east-1';
         let allEvents = [];
+        
+        function showTab(tabName) {
+            // Hide all tab contents
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(tab => tab.classList.remove('active'));
+            
+            // Remove active class from all tabs
+            const navTabs = document.querySelectorAll('.nav-tab');
+            navTabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Show selected tab content
+            document.getElementById(tabName).classList.add('active');
+            
+            // Add active class to selected nav tab
+            event.target.classList.add('active');
+        }
 
         function getHIPAAControl(ruleName) {
             const mapping = {
