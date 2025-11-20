@@ -24,7 +24,7 @@
         .stat-card { background: white; padding: 20px; border: 2px solid black; border-radius: 8px; }
         .stat-card h3 { color: #666; font-size: 14px; margin-bottom: 10px; }
         .stat-card .number { font-size: 32px; font-weight: bold; color: #2ca02c; }
-        .filters { background: white; padding: 20px; border: 2px solid black; border-radius: 8px; margin-bottom: 20px; }
+        .filters { background: white; padding: 20px; border: 2px solid black; border-top: none; border-radius: 0 0 8px 8px; margin-bottom: 0; }
         .filters input { padding: 10px; border: 2px solid black; border-radius: 4px; width: 300px; }
         table { width: 100%; background: white; border: 2px solid black; border-radius: 8px; overflow: hidden; }
         th { background: black; color: white; padding: 15px; text-align: left; }
@@ -41,7 +41,10 @@
         .refresh:hover { background: #1e7e1e; }
         
         .manual-section { background: white; border: 2px solid #d32f2f; border-radius: 8px; margin-bottom: 20px; }
-        .manual-header { background: #d32f2f; color: white; padding: 15px; font-weight: bold; font-size: 18px; }
+        .manual-header { background: #d32f2f; color: white; padding: 15px; font-weight: bold; font-size: 18px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .manual-toggle { font-size: 20px; }
+        .logs-section { background: white; border: 2px solid #2ca02c; border-radius: 8px; margin-bottom: 20px; }
+        .logs-header { background: #2ca02c; color: white; padding: 15px; font-weight: bold; font-size: 18px; }
         .manual-table { border: none; }
         .manual-table th { background: black; }
         .view-details { background: #d32f2f; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
@@ -100,7 +103,10 @@
             </div>
 
             <div id="manualSection" class="manual-section">
-                <div class="manual-header" id="manualHeader">⚠️ Manual Remediation Required</div>
+                <div class="manual-header" id="manualHeader" onclick="toggleManualSection()">
+                    <span id="manualHeaderText">⚠️ Manual Remediation Required</span>
+                    <span class="manual-toggle" id="manualToggle">−</span>
+                </div>
                 <div id="manualContent">
                     <table class="manual-table" id="manualTable">
                         <thead>
@@ -121,27 +127,30 @@
                 </div>
             </div>
 
-            <div class="filters">
-                <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
-                <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
+            <div class="logs-section">
+                <div class="logs-header">📋 All Logs</div>
+                <div class="filters">
+                    <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
+                    <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
+                </div>
+
+                <div id="loading" class="loading">Loading compliance events...</div>
+                <div id="error" class="error" style="display:none;"></div>
+
+                <table id="eventsTable" style="display:none;">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Rule Name</th>
+                            <th>HIPAA Control</th>
+                            <th>Resource ID</th>
+                            <th>Status</th>
+                            <th>Region</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventsBody"></tbody>
+                </table>
             </div>
-
-            <div id="loading" class="loading">Loading compliance events...</div>
-            <div id="error" class="error" style="display:none;"></div>
-
-            <table id="eventsTable" style="display:none;">
-                <thead>
-                    <tr>
-                        <th>Timestamp</th>
-                        <th>Rule Name</th>
-                        <th>HIPAA Control</th>
-                        <th>Resource ID</th>
-                        <th>Status</th>
-                        <th>Region</th>
-                    </tr>
-                </thead>
-                <tbody id="eventsBody"></tbody>
-            </table>
         </div>
         
         <div id="operational" class="tab-content">
@@ -182,7 +191,10 @@
         const REGION = 'us-east-1';
         let allEvents = [];
         let manualRemediationRules = [
-            's3-bucket-logging-enabled'
+            's3-bucket-logging-enabled',
+            's3-bucket-ssl-requests-only',
+            's3-bucket-object-lock-enabled',
+            's3-bucket-replication-enabled'
         ];
         
         function showTab(tabName) {
@@ -208,7 +220,10 @@
                 's3-bucket-server-side-encryption-enabled': '164.312(a)(2)(iv)',
                 's3-bucket-versioning-enabled': '164.308(a)(7)(ii)(A)',
                 's3-bucket-block-public-acl-enabled': '164.308(a)(3)(i)',
-                's3-bucket-logging-enabled': '164.312(b)'
+                's3-bucket-logging-enabled': '164.312(b)',
+                's3-bucket-ssl-requests-only': '164.312(e)(1)',
+                's3-bucket-object-lock-enabled': '164.312(c)(1)',
+                's3-bucket-replication-enabled': '164.308(a)(7)'
             };
             return mapping[ruleName] || 'N/A';
         }
@@ -272,11 +287,34 @@
             });
         }
 
+        let manualSectionCollapsed = false;
+        
+        function toggleManualSection() {
+            const manualContent = document.getElementById('manualContent');
+            const manualToggle = document.getElementById('manualToggle');
+            const manualHeaderText = document.getElementById('manualHeaderText');
+            
+            manualSectionCollapsed = !manualSectionCollapsed;
+            
+            if (manualSectionCollapsed) {
+                manualContent.style.display = 'none';
+                manualToggle.textContent = '+';
+                const count = getLatestNonCompliantManualEvents(allEvents).length;
+                const currentText = manualHeaderText.textContent;
+                manualHeaderText.textContent = currentText + ` (${count} items) - Collapsed`;
+            } else {
+                manualContent.style.display = 'block';
+                manualToggle.textContent = '−';
+                displayManualRemediation(allEvents);
+            }
+        }
+
         function displayManualRemediation(events) {
             const manualEvents = getLatestNonCompliantManualEvents(events);
             const tbody = document.getElementById('manualBody');
             const manualTable = document.getElementById('manualTable');
             const noManualItems = document.getElementById('noManualItems');
+            const manualHeaderText = document.getElementById('manualHeaderText');
             const manualHeader = document.getElementById('manualHeader');
             
             tbody.innerHTML = '';
@@ -284,12 +322,12 @@
             if (manualEvents.length === 0) {
                 manualTable.style.display = 'none';
                 noManualItems.style.display = 'block';
-                manualHeader.innerHTML = '✅ Manual Remediation Status';
+                manualHeaderText.textContent = '✅ Manual Remediation Status';
                 manualHeader.style.background = '#2ca02c';
             } else {
                 manualTable.style.display = 'table';
                 noManualItems.style.display = 'none';
-                manualHeader.innerHTML = '⚠️ Manual Remediation Required';
+                manualHeaderText.textContent = '⚠️ Manual Remediation Required';
                 manualHeader.style.background = '#d32f2f';
                 
                 manualEvents.forEach(event => {
@@ -358,6 +396,70 @@
                         'Test by accessing an object in the bucket and confirming the access is logged'
                     ],
                     awsLink: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerLogs.html'
+                },
+                's3-bucket-ssl-requests-only': {
+                    risk: 'Without SSL/TLS enforcement, data transmitted to and from your S3 bucket could be intercepted in transit. This violates HIPAA requirements for protecting PHI during transmission.',
+                    impact: 'HIPAA compliance violation. Risk of PHI interception during data transfer. Potential data breaches and regulatory penalties.',
+                    steps: [
+                        'Navigate to the S3 console and select your non-compliant bucket',
+                        'Go to Permissions > Bucket policy',
+                        'If no policy exists, click "Edit" and add the SSL-only policy',
+                        'If a policy already exists, carefully merge the SSL requirement with existing statements',
+                        'Use the AWS Policy Generator if needed to avoid syntax errors',
+                        'Test the policy with a sample HTTP request to ensure it\'s denied',
+                        'Save the policy'
+                    ],
+                    verification: [
+                        'Verify bucket policy includes "aws:SecureTransport": "false" condition with Deny effect',
+                        'Test HTTP access to confirm it\'s blocked',
+                        'Confirm HTTPS access still works for authorized users',
+                        'Check that existing applications continue to function'
+                    ],
+                    awsLink: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html#transit'
+                },
+                's3-bucket-object-lock-enabled': {
+                    risk: 'Without Object Lock, critical PHI and audit records can be accidentally or maliciously deleted or modified. HIPAA requires immutable audit trails and data integrity protection.',
+                    impact: 'HIPAA compliance violation. Risk of data tampering or deletion. Loss of audit trail integrity. Potential regulatory fines.',
+                    steps: [
+                        'IMPORTANT: Object Lock can only be enabled during bucket creation or by contacting AWS Support',
+                        'If this is a new bucket: Enable "Object Lock" during bucket creation',
+                        'If this is an existing bucket: Contact AWS Support to enable Object Lock',
+                        'Once enabled, configure default retention settings in bucket properties',
+                        'Choose retention mode: Governance (allows privileged deletion) or Compliance (strict)',
+                        'Set retention period based on your data retention requirements',
+                        'Consider enabling Legal Hold for litigation scenarios'
+                    ],
+                    verification: [
+                        'Check bucket properties show "Object Lock" as "Enabled"',
+                        'Verify default retention settings are configured',
+                        'Test that objects cannot be deleted during retention period',
+                        'Confirm new objects automatically inherit retention settings'
+                    ],
+                    awsLink: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html'
+                },
+                's3-bucket-replication-enabled': {
+                    risk: 'Without cross-region replication, your PHI exists in only one location. HIPAA requires data availability and disaster recovery capabilities to ensure continuous access to patient information.',
+                    impact: 'HIPAA compliance violation. Risk of data loss during regional outages. Inability to meet data availability requirements. Business continuity risks.',
+                    steps: [
+                        'Create a destination S3 bucket in a different AWS region',
+                        'Ensure destination bucket has same security settings (encryption, access controls)',
+                        'Create an IAM role with S3 replication permissions',
+                        'Navigate to source bucket > Management > Replication rules',
+                        'Click "Create replication rule"',
+                        'Configure rule scope (entire bucket or specific prefixes)',
+                        'Select destination bucket and IAM role',
+                        'Enable "Replicate objects encrypted with AWS KMS" if using KMS',
+                        'Choose storage class for replicated objects (consider costs)',
+                        'Save and activate the replication rule'
+                    ],
+                    verification: [
+                        'Check that replication rule shows as "Enabled" in bucket management',
+                        'Upload a test file and verify it appears in destination bucket',
+                        'Confirm replication metrics in CloudWatch',
+                        'Test that encrypted objects replicate correctly',
+                        'Verify destination bucket maintains same security posture'
+                    ],
+                    awsLink: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/replication.html'
                 }
             };
             
@@ -393,6 +495,7 @@
                     <ol>
                         ${guide.steps.map(step => `<li>${step}</li>`).join('')}
                     </ol>
+                    <br>
                     <p><a href="${guide.awsLink}" target="_blank" class="aws-link">📖 Official AWS Documentation</a></p>
                 </div>
                 

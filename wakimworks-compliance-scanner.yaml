@@ -311,6 +311,7 @@ Resources:
                   - s3:PutBucketVersioning
                   - s3:PutEncryptionConfiguration
                   - s3:PutBucketAcl
+                  - s3:PutBucketPolicy
                   - s3:GetBucket*
                   - s3:ListBucket
                 Resource: 'arn:aws:s3:::*'
@@ -518,6 +519,104 @@ Resources:
       Source:
         Owner: AWS
         SourceIdentifier: S3_BUCKET_LOGGING_ENABLED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  SSLOnlyRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-ssl-requests-only
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_SSL_REQUESTS_ONLY
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  CustomSSLEnforcementDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Automation
+      DocumentFormat: YAML
+      Name: WakimWorks-CustomSSLEnforcement
+      Content:
+        schemaVersion: '0.3'
+        assumeRole: '{{ AutomationAssumeRole }}'
+        parameters:
+          S3BucketName:
+            type: String
+          AutomationAssumeRole:
+            type: String
+        mainSteps:
+          - name: ApplySSLPolicy
+            action: 'aws:executeAwsApi'
+            inputs:
+              Service: s3
+              Api: PutBucketPolicy
+              Bucket: '{{ S3BucketName }}'
+              Policy: |
+                {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                    {
+                      "Sid": "DenyInsecureConnections",
+                      "Effect": "Deny",
+                      "Principal": "*",
+                      "Action": "s3:*",
+                      "Resource": [
+                        "arn:aws:s3:::{{ S3BucketName }}",
+                        "arn:aws:s3:::{{ S3BucketName }}/*"
+                      ],
+                      "Condition": {
+                        "Bool": {
+                          "aws:SecureTransport": "false"
+                        }
+                      }
+                    }
+                  ]
+                }
+
+  SSLOnlyRemediation:
+    Type: AWS::Config::RemediationConfiguration
+    Properties:
+      ConfigRuleName: !Ref SSLOnlyRule
+      TargetType: SSM_DOCUMENT
+      TargetId: !Ref CustomSSLEnforcementDocument
+      TargetVersion: '1'
+      Parameters:
+        AutomationAssumeRole:
+          StaticValue:
+            Values:
+              - !GetAtt SSMRemediationRole.Arn
+        S3BucketName:
+          ResourceValue:
+            Value: RESOURCE_ID
+      Automatic: true
+      MaximumAutomaticAttempts: 3
+      RetryAttemptSeconds: 60
+
+  ObjectLockRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-object-lock-enabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_DEFAULT_LOCK_ENABLED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
+
+  ReplicationRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-replication-enabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_REPLICATION_ENABLED
       Scope:
         ComplianceResourceTypes:
           - AWS::S3::Bucket
