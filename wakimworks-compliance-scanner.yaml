@@ -510,17 +510,17 @@ Resources:
       MaximumAutomaticAttempts: 3
       RetryAttemptSeconds: 60
 
-  # LoggingRule:
-  #   Type: AWS::Config::ConfigRule
-  #   DependsOn: ConfigRecorder
-  #   Properties:
-  #     ConfigRuleName: s3-bucket-logging-enabled
-  #     Source:
-  #       Owner: AWS
-  #       SourceIdentifier: S3_BUCKET_LOGGING_ENABLED
-  #     Scope:
-  #       ComplianceResourceTypes:
-  #         - AWS::S3::Bucket
+  LoggingRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorder
+    Properties:
+      ConfigRuleName: s3-bucket-logging-enabled
+      Source:
+        Owner: AWS
+        SourceIdentifier: S3_BUCKET_LOGGING_ENABLED
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::S3::Bucket
 
   # ============================================================================
   # Compliance Event Processing
@@ -607,10 +607,6 @@ Resources:
           - aws.config
         detail-type:
           - Config Rules Compliance Change
-        detail:
-          newEvaluationResult:
-            complianceType:
-              - NON_COMPLIANT
       State: ENABLED
       Targets:
         - Arn: !GetAtt ComplianceEventLambda.Arn
