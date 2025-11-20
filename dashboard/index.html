@@ -9,7 +9,7 @@
         body { font-family: Arial, sans-serif; background: white; padding: 20px; }
         .container { max-width: 1200px; margin: 0 auto; }
         h1 { color: black; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
-        h1 img { height: 40px; }
+        h1 img { height: 60px; }
         
         .nav-tabs { display: flex; width: 100%; margin-bottom: 30px; border-bottom: 2px solid black; }
         .nav-tab { flex: 1; padding: 15px; text-align: center; background: white; border: 2px solid black; border-bottom: none; cursor: pointer; font-weight: bold; transition: all 0.3s; }
@@ -32,10 +32,34 @@
         tr:hover { background: #f0f0f0; }
         .status { padding: 5px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         .non-compliant { background: #ffebee; color: #d32f2f; }
+        .compliant { background: #e8f5e8; color: #2ca02c; }
+        .not-applicable { background: #f5f5f5; color: #666; }
+        .insufficient-data { background: #fff3e0; color: #f57c00; }
         .loading { text-align: center; padding: 40px; color: #666; }
         .error { background: #ffebee; color: #d32f2f; padding: 20px; border: 2px solid #d32f2f; border-radius: 8px; margin: 20px 0; }
         .refresh { background: #2ca02c; color: white; border: 2px solid black; padding: 10px 20px; border-radius: 4px; cursor: pointer; float: right; }
         .refresh:hover { background: #1e7e1e; }
+        
+        .manual-section { background: white; border: 2px solid #d32f2f; border-radius: 8px; margin-bottom: 20px; }
+        .manual-header { background: #d32f2f; color: white; padding: 15px; font-weight: bold; font-size: 18px; }
+        .manual-table { border: none; }
+        .manual-table th { background: black; }
+        .view-details { background: #d32f2f; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .view-details:hover { background: #b71c1c; }
+        
+        .side-panel { position: fixed; top: 0; right: -600px; width: 600px; height: 100vh; background: white; border-left: 3px solid #d32f2f; box-shadow: -5px 0 15px rgba(0,0,0,0.3); transition: right 0.3s ease; z-index: 1000; overflow-y: auto; }
+        .side-panel.open { right: 0; }
+        .side-panel-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 999; display: none; }
+        .side-panel-overlay.open { display: block; }
+        .side-panel-header { background: #d32f2f; color: white; padding: 20px; display: flex; justify-content: between; align-items: center; }
+        .side-panel-close { background: none; border: none; color: white; font-size: 24px; cursor: pointer; float: right; }
+        .side-panel-content { padding: 20px; }
+        .side-panel-section { margin-bottom: 25px; }
+        .side-panel-section h3 { color: #d32f2f; margin-bottom: 10px; font-size: 16px; }
+        .side-panel-section p, .side-panel-section ul { margin-bottom: 10px; line-height: 1.5; }
+        .side-panel-section ul { padding-left: 20px; }
+        .aws-link { color: #2ca02c; text-decoration: none; font-weight: bold; }
+        .aws-link:hover { text-decoration: underline; }
         
         .placeholder { padding: 40px; text-align: center; color: #666; border: 2px solid black; border-radius: 8px; background: white; }
     </style>
@@ -46,7 +70,7 @@
         
         <div class="nav-tabs">
             <div class="nav-tab active" onclick="showTab('summary')">Summary</div>
-            <div class="nav-tab" onclick="showTab('technical')">Technical Controls</div>
+            <div class="nav-tab" onclick="showTab('technical')">Technical Config Controls</div>
             <div class="nav-tab" onclick="showTab('operational')">Operational Controls</div>
             <div class="nav-tab" onclick="showTab('administration')">Administration Controls</div>
             <div class="nav-tab" onclick="showTab('profile')">Profile</div>
@@ -72,6 +96,28 @@
                 <div class="stat-card">
                     <h3>Last Updated</h3>
                     <div class="number" style="font-size: 16px;" id="lastUpdated">-</div>
+                </div>
+            </div>
+
+            <div id="manualSection" class="manual-section">
+                <div class="manual-header" id="manualHeader">⚠️ Manual Remediation Required</div>
+                <div id="manualContent">
+                    <table class="manual-table" id="manualTable">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Rule Name</th>
+                                <th>HIPAA Control</th>
+                                <th>Resource ID</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="manualBody"></tbody>
+                    </table>
+                    <div id="noManualItems" class="placeholder" style="display:none; margin: 20px; padding: 30px; background: #e8f5e8; border: 2px solid #2ca02c; color: #2ca02c;">
+                        ✅ Everything is being handled automatically.
+                    </div>
                 </div>
             </div>
 
@@ -120,10 +166,24 @@
         </div>
     </div>
 
+    <div class="side-panel-overlay" id="sidePanelOverlay" onclick="closeSidePanel()"></div>
+    <div class="side-panel" id="sidePanel">
+        <div class="side-panel-header">
+            <h2>Remediation Details</h2>
+            <button class="side-panel-close" onclick="closeSidePanel()">&times;</button>
+        </div>
+        <div class="side-panel-content" id="sidePanelContent">
+            <!-- Content will be populated dynamically -->
+        </div>
+    </div>
+
     <script>
         const AUDIT_BUCKET = 'wakimworks-compliance-scanner-audit-logs';
         const REGION = 'us-east-1';
         let allEvents = [];
+        let manualRemediationRules = [
+            's3-bucket-logging-enabled'
+        ];
         
         function showTab(tabName) {
             // Hide all tab contents
@@ -183,6 +243,7 @@
 
                 allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 displayEvents(allEvents);
+                displayManualRemediation(allEvents);
                 updateStats(allEvents);
                 
                 document.getElementById('loading').style.display = 'none';
@@ -205,10 +266,143 @@
                     <td>${event.configRuleName}</td>
                     <td>${getHIPAAControl(event.configRuleName)}</td>
                     <td>${event.resourceId}</td>
-                    <td><span class="status non-compliant">${event.complianceType}</span></td>
+                    <td><span class="status ${event.complianceType.toLowerCase().replace('_', '-')}">${event.complianceType}</span></td>
                     <td>${event.awsRegion}</td>
                 `;
             });
+        }
+
+        function displayManualRemediation(events) {
+            const manualEvents = getLatestNonCompliantManualEvents(events);
+            const tbody = document.getElementById('manualBody');
+            const manualTable = document.getElementById('manualTable');
+            const noManualItems = document.getElementById('noManualItems');
+            const manualHeader = document.getElementById('manualHeader');
+            
+            tbody.innerHTML = '';
+            
+            if (manualEvents.length === 0) {
+                manualTable.style.display = 'none';
+                noManualItems.style.display = 'block';
+                manualHeader.innerHTML = '✅ Manual Remediation Status';
+                manualHeader.style.background = '#2ca02c';
+            } else {
+                manualTable.style.display = 'table';
+                noManualItems.style.display = 'none';
+                manualHeader.innerHTML = '⚠️ Manual Remediation Required';
+                manualHeader.style.background = '#d32f2f';
+                
+                manualEvents.forEach(event => {
+                    const row = tbody.insertRow();
+                    row.innerHTML = `
+                        <td>${new Date(event.timestamp).toLocaleString()}</td>
+                        <td>${event.configRuleName}</td>
+                        <td>${getHIPAAControl(event.configRuleName)}</td>
+                        <td>${event.resourceId}</td>
+                        <td><span class="status non-compliant">${event.complianceType}</span></td>
+                        <td><button class="view-details" onclick="openSidePanel('${event.configRuleName}', '${event.resourceId}', '${event.awsRegion}')">View Details</button></td>
+                    `;
+                });
+            }
+        }
+
+        function getLatestNonCompliantManualEvents(events) {
+            const resourceMap = new Map();
+            
+            // Get latest status for each resource
+            events.forEach(event => {
+                const key = `${event.resourceId}-${event.configRuleName}`;
+                if (!resourceMap.has(key) || new Date(event.timestamp) > new Date(resourceMap.get(key).timestamp)) {
+                    resourceMap.set(key, event);
+                }
+            });
+            
+            // Filter for NON_COMPLIANT manual remediation rules
+            return Array.from(resourceMap.values())
+                .filter(event => 
+                    event.complianceType === 'NON_COMPLIANT' && 
+                    manualRemediationRules.includes(event.configRuleName)
+                )
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        }
+
+        function openSidePanel(ruleName, resourceId, region) {
+            const content = getRemediationContent(ruleName, resourceId, region);
+            document.getElementById('sidePanelContent').innerHTML = content;
+            document.getElementById('sidePanel').classList.add('open');
+            document.getElementById('sidePanelOverlay').classList.add('open');
+        }
+
+        function closeSidePanel() {
+            document.getElementById('sidePanel').classList.remove('open');
+            document.getElementById('sidePanelOverlay').classList.remove('open');
+        }
+
+        function getRemediationContent(ruleName, resourceId, region) {
+            const remediationGuides = {
+                's3-bucket-logging-enabled': {
+                    risk: 'Without access logging enabled, you cannot track who accessed your S3 bucket or when. This creates audit gaps that violate HIPAA requirements for monitoring access to protected health information (PHI).',
+                    impact: 'HIPAA compliance violation. Inability to detect unauthorized access to patient data. Potential regulatory fines and loss of patient trust.',
+                    steps: [
+                        'Create a dedicated S3 bucket for storing access logs (e.g., "my-org-s3-access-logs")',
+                        'Navigate to the S3 console and select your non-compliant bucket',
+                        'Go to Properties > Server access logging',
+                        'Click "Edit" and enable logging',
+                        'Select your log destination bucket',
+                        'Optionally specify a log object key prefix for organization',
+                        'Save the configuration'
+                    ],
+                    verification: [
+                        'Check that "Server access logging" shows as "Enabled" in bucket properties',
+                        'Verify log files appear in your destination bucket within 24 hours',
+                        'Test by accessing an object in the bucket and confirming the access is logged'
+                    ],
+                    awsLink: 'https://docs.aws.amazon.com/AmazonS3/latest/userguide/ServerLogs.html'
+                }
+            };
+            
+            const guide = remediationGuides[ruleName] || {
+                risk: 'This configuration violates security best practices.',
+                impact: 'Potential security vulnerability and compliance issues.',
+                steps: ['Contact your system administrator for specific remediation steps.'],
+                verification: ['Verify the configuration meets your organization\'s security requirements.'],
+                awsLink: 'https://docs.aws.amazon.com/s3/'
+            };
+            
+            return `
+                <div class="side-panel-section">
+                    <h3>🎯 Resource Information</h3>
+                    <p><strong>Resource ID:</strong> ${resourceId}</p>
+                    <p><strong>Region:</strong> ${region}</p>
+                    <p><strong>Rule:</strong> ${ruleName}</p>
+                    <p><strong>HIPAA Control:</strong> ${getHIPAAControl(ruleName)}</p>
+                </div>
+                
+                <div class="side-panel-section">
+                    <h3>⚠️ Risk Explanation</h3>
+                    <p>${guide.risk}</p>
+                </div>
+                
+                <div class="side-panel-section">
+                    <h3>💼 Business Impact</h3>
+                    <p>${guide.impact}</p>
+                </div>
+                
+                <div class="side-panel-section">
+                    <h3>🔧 Step-by-Step Remediation</h3>
+                    <ol>
+                        ${guide.steps.map(step => `<li>${step}</li>`).join('')}
+                    </ol>
+                    <p><a href="${guide.awsLink}" target="_blank" class="aws-link">📖 Official AWS Documentation</a></p>
+                </div>
+                
+                <div class="side-panel-section">
+                    <h3>✅ Verification Steps</h3>
+                    <ul>
+                        ${guide.verification.map(step => `<li>${step}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
         }
 
         function updateStats(events) {
