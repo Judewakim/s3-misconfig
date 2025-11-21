@@ -593,7 +593,7 @@ Resources:
         S3BucketName:
           ResourceValue:
             Value: RESOURCE_ID
-      Automatic: true
+      Automatic: false
       MaximumAutomaticAttempts: 3
       RetryAttemptSeconds: 60
 
@@ -719,6 +719,105 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt ComplianceEventRule.Arn
 
+  # ============================================================================
+  # PDF Report Generation
+  # ============================================================================
+  ReportGeneratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: WakimWorksReportGeneratorRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3ReportAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt AuditingBucket.Arn
+                  - !Sub '${AuditingBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub '${AuditingBucket.Arn}/reports/*'
+
+  ReportGeneratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: wakimworks-report-generator
+      Runtime: python3.12
+      Handler: report_generator.lambda_handler
+      Role: !GetAtt ReportGeneratorRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref AuditingBucket
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              return {
+                  'statusCode': 503,
+                  'headers': {'Access-Control-Allow-Origin': '*'},
+                  'body': json.dumps({'error': 'Function code not yet deployed'})
+              }
+
+  ReportAPI:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: wakimworks-report-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+
+  ReportAPIIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ReportAPI
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ReportGeneratorLambda.Arn
+      PayloadFormatVersion: '2.0'
+
+  ReportAPIRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ReportAPI
+      RouteKey: 'POST /generate-report'
+      Target: !Sub 'integrations/${ReportAPIIntegration}'
+
+  ReportAPIStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ReportAPI
+      StageName: '$default'
+      AutoDeploy: true
+
+  ReportAPILambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ReportGeneratorLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ReportAPI}/*'
+
 Outputs:
   ConfigRecorderName:
     Description: Config Recorder Name
@@ -749,3 +848,9 @@ Outputs:
     Value: !Sub 'https://${CloudFrontDistribution.DomainName}'
     Export:
       Name: !Sub '${AWS::StackName}-DashboardURL'
+
+  ReportAPIEndpoint:
+    Description: Report Generation API Endpoint
+    Value: !Sub 'https://${ReportAPI}.execute-api.${AWS::Region}.amazonaws.com/generate-report'
+    Export:
+      Name: !Sub '${AWS::StackName}-ReportAPIEndpoint'
