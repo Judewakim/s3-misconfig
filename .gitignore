@@ -213,3 +213,16 @@ remediate-risks-temp.py
 send-emails-temp.py
 *.zip
 *-temp.py
+
+# Lambda build artifacts
+lambda/package/
+lambda/*.zip
+response.json
+
+# AWS CLI installer
+awscliv2.zip
+aws/
+
+# Dashboard temp files
+dashboard/*_configured.html
+dashboard/*.bak

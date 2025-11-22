@@ -1,0 +1,310 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'WakimWorks Compliance Platform - Seller Account Stack (Multi-Tenant SaaS)'
+
+Parameters:
+  LambdaCodeBucket:
+    Type: String
+    Default: wakimworks-s3scanner-lambda-code
+    Description: S3 bucket containing Lambda deployment packages
+  
+  SenderEmail:
+    Type: String
+    Default: scanner@wakimworks.com
+    Description: Verified SES sender email
+
+Resources:
+  # ============================================================================
+  # SNS Topic - Receives cross-account Config violation events
+  # ============================================================================
+  ComplianceViolationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'wakimworks-compliance-violations-${AWS::StackName}'
+      DisplayName: WakimWorks Compliance Violations
+      KmsMasterKeyId: alias/aws/sns
+
+  ComplianceViolationTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref ComplianceViolationTopic
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCrossAccountPublish
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref ComplianceViolationTopic
+
+  # ============================================================================
+  # DynamoDB Table - Client remediation records
+  # ============================================================================
+  ClientRemediationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'wakimworks-client-remediation-${AWS::StackName}'
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      AttributeDefinitions:
+        - AttributeName: ClientAccountId
+          AttributeType: S
+        - AttributeName: Timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: ClientAccountId
+          KeyType: HASH
+        - AttributeName: Timestamp
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        Enabled: true
+        AttributeName: TTL
+
+  # ============================================================================
+  # S3 Bucket - Remediation logs and reports
+  # ============================================================================
+  RemediationLogsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'wakimworks-remediation-logs-${AWS::AccountId}'
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 90
+
+  # ============================================================================
+  # IAM Role - Lambda Execution Role
+  # ============================================================================
+  RemediationLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'WakimWorksRemediationLambdaRole-${AWS::StackName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RemediationPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AssumeClientRole
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: 'arn:aws:iam::*:role/WakimWorksRemediationRole*'
+              - Sid: DynamoDBAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt ClientRemediationTable.Arn
+              - Sid: S3LogAccess
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:PutObjectAcl
+                Resource: !Sub '${RemediationLogsBucket.Arn}/*'
+              - Sid: SESAccess
+                Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
+
+  # ============================================================================
+  # Lambda Function - S3 Remediation
+  # ============================================================================
+  S3RemediationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'wakimworks-s3-remediation-${AWS::StackName}'
+      Runtime: python3.12
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt RemediationLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref LambdaCodeBucket
+        S3Key: s3_remediation.zip
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref ClientRemediationTable
+          S3_LOGS_BUCKET: !Ref RemediationLogsBucket
+          SENDER_EMAIL: !Ref SenderEmail
+
+  SNSToLambdaSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      TopicArn: !Ref ComplianceViolationTopic
+      Endpoint: !GetAtt S3RemediationFunction.Arn
+
+  S3RemediationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref S3RemediationFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref ComplianceViolationTopic
+
+  # ============================================================================
+  # Lambda Function - IAM User Policy Remediation
+  # ============================================================================
+  # IAMUserPolicyRemediationFunction:
+  #   Type: AWS::Lambda::Function
+  #   Properties:
+  #     FunctionName: !Sub 'wakimworks-iam-policy-remediation-${AWS::StackName}'
+  #     Runtime: python3.12
+  #     Handler: lambda_function.lambda_handler
+  #     Role: !GetAtt RemediationLambdaRole.Arn
+  #     Timeout: 300
+  #     MemorySize: 256
+  #     Code:
+  #       S3Bucket: !Ref LambdaCodeBucket
+  #       S3Key: iam_user_policy_remediation.zip
+  #     Environment:
+  #       Variables:
+  #         DYNAMODB_TABLE: !Ref ClientRemediationTable
+  #         S3_LOGS_BUCKET: !Ref RemediationLogsBucket
+  #         SENDER_EMAIL: !Ref SenderEmail
+
+  # IAMRemediationEventRule:
+  #   Type: AWS::Events::Rule
+  #   Properties:
+  #     Name: !Sub 'wakimworks-iam-remediation-${AWS::StackName}'
+  #     State: ENABLED
+  #     EventPattern:
+  #       source:
+  #         - aws.config
+  #       detail-type:
+  #         - Config Rules Compliance Change
+  #       detail:
+  #         configRuleName:
+  #           - iam-user-no-policies-check
+  #         newEvaluationResult:
+  #           complianceType:
+  #             - NON_COMPLIANT
+  #     Targets:
+  #       - Arn: !GetAtt IAMUserPolicyRemediationFunction.Arn
+  #         Id: IAMRemediationTarget
+
+  # IAMRemediationPermission:
+  #   Type: AWS::Lambda::Permission
+  #   Properties:
+  #     FunctionName: !Ref IAMUserPolicyRemediationFunction
+  #     Action: lambda:InvokeFunction
+  #     Principal: events.amazonaws.com
+  #     SourceArn: !GetAtt IAMRemediationEventRule.Arn
+
+  # ============================================================================
+  # Lambda Function - EC2 Patch Compliance Remediation
+  # ============================================================================
+  # EC2PatchRemediationFunction:
+  #   Type: AWS::Lambda::Function
+  #   Properties:
+  #     FunctionName: !Sub 'wakimworks-ec2-patch-remediation-${AWS::StackName}'
+  #     Runtime: python3.12
+  #     Handler: lambda_function.lambda_handler
+  #     Role: !GetAtt RemediationLambdaRole.Arn
+  #     Timeout: 300
+  #     MemorySize: 256
+  #     Code:
+  #       S3Bucket: !Ref LambdaCodeBucket
+  #       S3Key: ec2_patch_remediation.zip
+  #     Environment:
+  #       Variables:
+  #         DYNAMODB_TABLE: !Ref ClientRemediationTable
+  #         S3_LOGS_BUCKET: !Ref RemediationLogsBucket
+  #         SENDER_EMAIL: !Ref SenderEmail
+
+  # EC2RemediationEventRule:
+  #   Type: AWS::Events::Rule
+  #   Properties:
+  #     Name: !Sub 'wakimworks-ec2-remediation-${AWS::StackName}'
+  #     State: ENABLED
+  #     EventPattern:
+  #       source:
+  #         - aws.config
+  #       detail-type:
+  #         - Config Rules Compliance Change
+  #       detail:
+  #         configRuleName:
+  #           - ec2-managedinstance-patch-compliance-status-check
+  #         newEvaluationResult:
+  #           complianceType:
+  #             - NON_COMPLIANT
+  #     Targets:
+  #       - Arn: !GetAtt EC2PatchRemediationFunction.Arn
+  #         Id: EC2RemediationTarget
+
+  # # EC2RemediationPermission:
+  #   Type: AWS::Lambda::Permission
+  #   Properties:
+  #     FunctionName: !Ref EC2PatchRemediationFunction
+  #     Action: lambda:InvokeFunction
+  #     Principal: events.amazonaws.com
+  #     SourceArn: !GetAtt EC2RemediationEventRule.Arn
+
+  # ============================================================================
+  # Lambda Function - Marketplace Entitlement Verification (Placeholder)
+  # ============================================================================
+  # EntitlementVerificationFunction:
+  #   Type: AWS::Lambda::Function
+  #   Properties:
+  #     FunctionName: !Sub 'wakimworks-entitlement-check-${AWS::StackName}'
+  #     Runtime: python3.12
+  #     Handler: lambda_function.lambda_handler
+  #     Role: !GetAtt RemediationLambdaRole.Arn
+  #     Timeout: 60
+  #     MemorySize: 128
+  #     Code:
+  #       S3Bucket: !Ref LambdaCodeBucket
+  #       S3Key: entitlement_verification.zip
+  #     Environment:
+  #       Variables:
+  #         DYNAMODB_TABLE: !Ref ClientRemediationTable
+
+# ============================================================================
+# Outputs
+# ============================================================================
+Outputs:
+  SNSTopicArn:
+    Description: SNS Topic ARN for client EventBridge rules
+    Value: !Ref ComplianceViolationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-SNSTopicArn'
+
+  DynamoDBTableName:
+    Description: DynamoDB table for remediation records
+    Value: !Ref ClientRemediationTable
+
+  S3LogsBucket:
+    Description: S3 bucket for remediation logs
+    Value: !Ref RemediationLogsBucket
+
+  SellerAccountId:
+    Description: Seller AWS Account ID
+    Value: !Ref AWS::AccountId
