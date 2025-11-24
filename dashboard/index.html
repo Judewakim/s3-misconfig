@@ -76,9 +76,9 @@
         
         <div class="nav-tabs">
             <div class="nav-tab active" onclick="showTab('summary')">Summary</div>
-            <div class="nav-tab" onclick="showTab('technical')">Technical Config Controls</div>
+            <div class="nav-tab" onclick="showTab('technical')">Technical Controls</div>
             <div class="nav-tab" onclick="showTab('operational')">Operational Controls</div>
-            <div class="nav-tab" onclick="showTab('administration')">Administration Controls</div>
+            <div class="nav-tab" onclick="showTab('administration')">Admin Controls</div>
             <div class="nav-tab" onclick="showTab('profile')">Profile</div>
         </div>
         
@@ -86,6 +86,54 @@
             <div class="placeholder">
                 <h2>Summary Dashboard</h2>
                 <p>Overview and summary metrics will be displayed here.</p>
+            </div>
+            
+            <div class="integration-section" style="background: white; border: 2px solid black; border-radius: 8px; padding: 20px; margin-top: 20px;">
+                <h3 style="margin-bottom: 15px;">🔗 Integrations</h3>
+                <div id="securityHubStatus" style="margin-bottom: 10px;">
+                    <p><strong>Security Hub:</strong> <span id="shStatus" style="color: #666;">Loading...</span></p>
+                </div>
+                <div id="securityHubInstructions" style="display:none; background: #f5f5f5; padding: 20px; border-radius: 4px; margin-top: 10px; line-height: 1.8;">
+                    <h4 style="margin-bottom: 15px; font-size: 16px;">Enable Security Hub Integration</h4>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <strong>Step 1: Enable AWS Security Hub (if not already enabled)</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p style="margin-bottom: 5px;">Via CLI: <code style="background: #e0e0e0; padding: 3px 8px; border-radius: 3px; font-size: 13px;">aws securityhub enable-security-hub --region us-east-1</code></p>
+                            <p style="margin-top: 8px;">Via Console: AWS Security Hub → Get Started → Enable Security Hub</p>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <strong>Step 2: Update CloudFormation stack to enable integration</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p style="margin-bottom: 8px;"><strong>If deployed via deploy.py:</strong> Re-run the script (integration is auto-enabled)</p>
+                            <p style="margin-bottom: 8px;"><strong>If deployed manually:</strong> Run this command:</p>
+                            <pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 0;">aws cloudformation update-stack \
+  --stack-name WakimWorksComplianceScanner \
+  --use-previous-template \
+  --parameters ParameterKey=EnableSecurityHubIntegration,ParameterValue=true \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-1</pre>
+                            <p style="margin-top: 10px; font-size: 13px; color: #666;"><em>Note: If you get "No updates are to be performed", the integration is already enabled!</em></p>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <strong>Step 3: Trigger a compliance event</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p>Modify an S3 bucket to trigger a Config rule evaluation. Once a finding is sent to Security Hub, this status will update to "✅ Connected"</p>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 15px;">
+                        <strong>Step 4: Verify integration</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p>Security Hub console → Findings → Filter by "S3 HIPAA Compliance"</p>
+                        </div>
+                    </div>
+                </div>
+                <button id="toggleInstructions" onclick="toggleSecurityHubInstructions()" style="background: #2ca02c; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 10px; display: none;">Show Setup Instructions</button>
             </div>
         </div>
         
@@ -571,27 +619,93 @@
                     headers: {'Content-Type': 'application/json'}
                 });
                 
-                const data = await response.json();
+                const text = await response.text();
+                console.log('Response status:', response.status);
+                console.log('Response text:', text);
+                
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${text.substring(0, 200)}`);
+                }
                 
                 if (data.downloadUrl) {
-                    window.location.href = data.downloadUrl;
+                    window.open(data.downloadUrl, '_blank');
                     btn.textContent = '✅ Report Generated!';
                     setTimeout(() => {
                         btn.textContent = '📄 Generate PDF Report';
                         btn.disabled = false;
                     }, 3000);
+                } else if (data.error) {
+                    throw new Error(data.error);
                 } else {
                     throw new Error('No download URL received');
                 }
             } catch (error) {
+                console.error('Report generation error:', error);
                 alert('Error generating report: ' + error.message);
                 btn.textContent = '📄 Generate PDF Report';
                 btn.disabled = false;
             }
         }
 
+        function toggleSecurityHubInstructions() {
+            const instructions = document.getElementById('securityHubInstructions');
+            const button = document.getElementById('toggleInstructions');
+            
+            if (instructions.style.display === 'none') {
+                instructions.style.display = 'block';
+                button.textContent = 'Hide Setup Instructions';
+            } else {
+                instructions.style.display = 'none';
+                button.textContent = 'Show Setup Instructions';
+            }
+        }
+
+        async function checkSecurityHubIntegration() {
+            const statusElement = document.getElementById('shStatus');
+            const toggleButton = document.getElementById('toggleInstructions');
+            
+            try {
+                // Check if SecurityHub forwarder Lambda exists
+                const response = await fetch(`https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/security-hub-status.json`);
+                
+                if (response.ok) {
+                    const status = await response.json();
+                    if (status.enabled) {
+                        statusElement.innerHTML = '<span style="color: #2ca02c;">✅ Connected</span>';
+                        toggleButton.style.display = 'none';
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.log('Security Hub status file not found, checking Lambda...');
+            }
+            
+            // Fallback: Check if Lambda exists by looking for recent Security Hub findings
+            try {
+                const listUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/?list-type=2&prefix=security-hub-status&max-keys=1`;
+                const response = await fetch(listUrl);
+                const text = await response.text();
+                
+                if (text.includes('security-hub-status')) {
+                    statusElement.innerHTML = '<span style="color: #2ca02c;">✅ Connected</span>';
+                    toggleButton.style.display = 'none';
+                } else {
+                    statusElement.innerHTML = '<span style="color: #d32f2f;">❌ Not Connected</span>';
+                    toggleButton.style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.error('Error checking Security Hub status:', error);
+                statusElement.innerHTML = '<span style="color: #d32f2f;">❌ Not Connected</span>';
+                toggleButton.style.display = 'inline-block';
+            }
+        }
+
         loadEvents();
         setInterval(loadEvents, 30000);
+        checkSecurityHubIntegration();
     </script>
 </body>
 </html>

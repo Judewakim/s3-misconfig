@@ -6,6 +6,15 @@ Parameters:
     Type: String
     Description: 'S3 bucket name for audit logs (must be globally unique)'
     Default: 'wakimworks-compliance-scanner-audit-logs'
+  
+  EnableSecurityHubIntegration:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: 'Enable AWS Security Hub integration. Note: Security Hub should be enabled in your account first, or this stack will attempt to enable it automatically.'
+
+Conditions:
+  SecurityHubEnabled: !Equals [!Ref EnableSecurityHubIntegration, 'true']
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -14,6 +23,7 @@ Metadata:
           default: 'Compliance Configuration'
         Parameters:
           - AuditingBucketName
+          - EnableSecurityHubIntegration
 
 Resources:
   # ============================================================================
@@ -144,9 +154,10 @@ Resources:
       CorsConfiguration:
         CorsRules:
           - AllowedOrigins:
-              - !Sub 'https://${CloudFrontDistribution.DomainName}'
+              - '*'
             AllowedMethods:
               - GET
+              - HEAD
             AllowedHeaders:
               - '*'
             MaxAge: 3000
@@ -622,6 +633,222 @@ Resources:
           - AWS::S3::Bucket
 
   # ============================================================================
+  # Security Hub Integration (Optional)
+  # ============================================================================
+  SecurityHubEnablerRole:
+    Type: AWS::IAM::Role
+    Condition: SecurityHubEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SecurityHubEnableAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - securityhub:EnableSecurityHub
+                  - securityhub:DescribeHub
+                Resource: '*'
+
+  SecurityHubEnablerLambda:
+    Type: AWS::Lambda::Function
+    Condition: SecurityHubEnabled
+    Properties:
+      FunctionName: wakimworks-securityhub-enabler
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt SecurityHubEnablerRole.Arn
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          
+          securityhub = boto3.client('securityhub')
+          
+          def lambda_handler(event, context):
+              print(f"Event: {json.dumps(event)}")
+              
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      try:
+                          # Try to enable Security Hub
+                          securityhub.enable_security_hub()
+                          print("Security Hub enabled successfully")
+                      except securityhub.exceptions.ResourceConflictException:
+                          # Already enabled - this is fine
+                          print("Security Hub already enabled")
+                      except Exception as e:
+                          print(f"Error enabling Security Hub: {str(e)}")
+                          # Don't fail the stack if Security Hub enable fails
+                          pass
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+
+  SecurityHubEnabler:
+    Type: Custom::SecurityHubEnabler
+    Condition: SecurityHubEnabled
+    Properties:
+      ServiceToken: !GetAtt SecurityHubEnablerLambda.Arn
+
+  SecurityHubForwarderRole:
+    Type: AWS::IAM::Role
+    Condition: SecurityHubEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SecurityHubAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - securityhub:BatchImportFindings
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub '${AuditingBucket.Arn}/security-hub-status.json'
+
+  SecurityHubForwarderLambda:
+    Type: AWS::Lambda::Function
+    Condition: SecurityHubEnabled
+    DependsOn: SecurityHubEnabler
+    Properties:
+      FunctionName: wakimworks-securityhub-forwarder
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt SecurityHubForwarderRole.Arn
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref AuditingBucket
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import time
+          import os
+          from datetime import datetime
+          
+          securityhub = boto3.client('securityhub')
+          s3 = boto3.client('s3')
+          bucket = os.environ['BUCKET_NAME']
+          
+          def lambda_handler(event, context):
+              print(f"Event: {json.dumps(event)}")
+              
+              detail = event['detail']
+              
+              # Map compliance to severity
+              severity_map = {
+                  'NON_COMPLIANT': 'HIGH',
+                  'COMPLIANT': 'INFORMATIONAL'
+              }
+              
+              # Map to HIPAA controls
+              hipaa_controls = {
+                  's3-bucket-public-read-prohibited': '164.308(a)(3)(i)',
+                  's3-bucket-public-write-prohibited': '164.308(a)(3)(i)',
+                  's3-bucket-server-side-encryption-enabled': '164.312(a)(2)(iv)',
+                  's3-bucket-versioning-enabled': '164.308(a)(7)(ii)(A)',
+                  's3-bucket-block-public-acl-enabled': '164.308(a)(3)(i)',
+                  's3-bucket-logging-enabled': '164.312(b)',
+                  's3-bucket-ssl-requests-only': '164.312(e)(1)',
+                  's3-bucket-object-lock-enabled': '164.312(c)(1)',
+                  's3-bucket-replication-enabled': '164.308(a)(7)'
+              }
+              
+              finding = {
+                  'SchemaVersion': '2018-10-08',
+                  'Id': f"{detail['configRuleName']}/{detail['resourceId']}/{detail['awsAccountId']}",
+                  'ProductArn': f"arn:aws:securityhub:{detail['awsRegion']}::product/aws/config",
+                  'GeneratorId': detail['configRuleName'],
+                  'AwsAccountId': detail['awsAccountId'],
+                  'Types': ['Software and Configuration Checks/AWS Config'],
+                  'CreatedAt': datetime.utcnow().isoformat() + 'Z',
+                  'UpdatedAt': datetime.utcnow().isoformat() + 'Z',
+                  'Severity': {
+                      'Label': severity_map.get(detail['newEvaluationResult']['complianceType'], 'MEDIUM')
+                  },
+                  'Title': f"S3 HIPAA Compliance: {detail['configRuleName']}",
+                  'Description': f"Resource {detail['resourceId']} is {detail['newEvaluationResult']['complianceType']} for rule {detail['configRuleName']}. HIPAA Control: {hipaa_controls.get(detail['configRuleName'], 'N/A')}",
+                  'Resources': [{
+                      'Type': 'AwsS3Bucket',
+                      'Id': detail['resourceId'],
+                      'Region': detail['awsRegion']
+                  }],
+                  'Compliance': {
+                      'Status': 'FAILED' if detail['newEvaluationResult']['complianceType'] == 'NON_COMPLIANT' else 'PASSED'
+                  }
+              }
+              
+              # Retry logic for Security Hub not ready
+              max_retries = 3
+              for attempt in range(max_retries):
+                  try:
+                      securityhub.batch_import_findings(Findings=[finding])
+                      print(f"Successfully sent finding to Security Hub")
+                      
+                      # Write status file to indicate Security Hub is connected
+                      try:
+                          status = {
+                              'enabled': True,
+                              'lastUpdate': datetime.utcnow().isoformat() + 'Z',
+                              'findingsSent': 1
+                          }
+                          s3.put_object(
+                              Bucket=bucket,
+                              Key='security-hub-status.json',
+                              Body=json.dumps(status),
+                              ContentType='application/json'
+                          )
+                      except Exception as e:
+                          print(f"Error writing status file: {str(e)}")
+                      
+                      return {'statusCode': 200}
+                  except securityhub.exceptions.InvalidAccessException:
+                      if attempt < max_retries - 1:
+                          print(f"Security Hub not ready, retrying in {2 ** attempt} seconds...")
+                          time.sleep(2 ** attempt)
+                      else:
+                          print("Security Hub not ready after retries")
+                          raise
+                  except Exception as e:
+                      print(f"Error sending to Security Hub: {str(e)}")
+                      raise
+
+  SecurityHubForwarderPermission:
+    Type: AWS::Lambda::Permission
+    Condition: SecurityHubEnabled
+    Properties:
+      FunctionName: !Ref SecurityHubForwarderLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ComplianceEventRule.Arn
+
+  # ============================================================================
   # Compliance Event Processing
   # ============================================================================
   ComplianceEventLambdaRole:
@@ -700,7 +927,7 @@ Resources:
     Type: AWS::Events::Rule
     Properties:
       Name: wakimworks-compliance-event-logger
-      Description: Log Config compliance changes to S3
+      Description: Log Config compliance changes to S3 and optionally Security Hub
       EventPattern:
         source:
           - aws.config
@@ -710,6 +937,11 @@ Resources:
       Targets:
         - Arn: !GetAtt ComplianceEventLambda.Arn
           Id: ComplianceEventLambdaTarget
+        - !If
+          - SecurityHubEnabled
+          - Arn: !GetAtt SecurityHubForwarderLambda.Arn
+            Id: SecurityHubForwarderTarget
+          - !Ref AWS::NoValue
 
   ComplianceEventLambdaPermission:
     Type: AWS::Lambda::Permission
@@ -854,3 +1086,9 @@ Outputs:
     Value: !Sub 'https://${ReportAPI}.execute-api.${AWS::Region}.amazonaws.com/generate-report'
     Export:
       Name: !Sub '${AWS::StackName}-ReportAPIEndpoint'
+
+  SecurityHubIntegrationStatus:
+    Description: Security Hub Integration Status
+    Value: !If [SecurityHubEnabled, 'Enabled', 'Disabled']
+    Export:
+      Name: !Sub '${AWS::StackName}-SecurityHubIntegrationStatus'
