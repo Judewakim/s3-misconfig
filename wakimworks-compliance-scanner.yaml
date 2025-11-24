@@ -933,6 +933,17 @@ Resources:
           - aws.config
         detail-type:
           - Config Rules Compliance Change
+        detail:
+          configRuleName:
+            - s3-bucket-public-read-prohibited
+            - s3-bucket-public-write-prohibited
+            - s3-bucket-server-side-encryption-enabled
+            - s3-bucket-versioning-enabled
+            - s3-bucket-block-public-acl-enabled
+            - s3-bucket-logging-enabled
+            - s3-bucket-ssl-requests-only
+            - s3-bucket-object-lock-enabled
+            - s3-bucket-replication-enabled
       State: ENABLED
       Targets:
         - Arn: !GetAtt ComplianceEventLambda.Arn

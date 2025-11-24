@@ -68,6 +68,16 @@
         .aws-link:hover { text-decoration: underline; }
         
         .placeholder { padding: 40px; text-align: center; color: #666; border: 2px solid black; border-radius: 8px; background: white; }
+        
+        .summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .summary-card { background: white; padding: 25px; border: 2px solid black; border-radius: 8px; text-align: center; }
+        .summary-card h3 { color: #666; font-size: 14px; margin-bottom: 15px; text-transform: uppercase; }
+        .summary-card .big-number { font-size: 48px; font-weight: bold; margin-bottom: 5px; }
+        .summary-card .note { font-size: 11px; color: #999; margin-top: 8px; line-height: 1.4; }
+        .score-green { color: #2ca02c; }
+        .score-yellow { color: #f57c00; }
+        .score-red { color: #d32f2f; }
+        .coming-soon { color: #999; font-style: italic; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -83,9 +93,36 @@
         </div>
         
         <div id="summary" class="tab-content active">
-            <div class="placeholder">
-                <h2>Summary Dashboard</h2>
-                <p>Overview and summary metrics will be displayed here.</p>
+            <div class="summary-stats">
+                <div class="summary-card">
+                    <h3>Overall Compliance Score</h3>
+                    <div class="big-number" id="complianceScore">-</div>
+                    <div class="note">* Based on Technical Controls only. Ops and Admin controls coming soon.</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Technical Controls</h3>
+                    <div class="big-number" id="technicalViolations" style="color: #d32f2f;">0</div>
+                    <div style="font-size: 13px; color: #666; margin-top: 5px;">Violations</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Operational Controls</h3>
+                    <div class="coming-soon">Coming Soon</div>
+                    <div style="font-size: 13px; color: #999; margin-top: 5px;">Not yet monitored</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Admin Controls</h3>
+                    <div class="coming-soon">Coming Soon</div>
+                    <div style="font-size: 13px; color: #999; margin-top: 5px;">Not yet monitored</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Critical Issues</h3>
+                    <div class="big-number" id="criticalIssues" style="color: #d32f2f;">0</div>
+                    <div style="font-size: 13px; color: #666; margin-top: 5px;">Require immediate attention</div>
+                </div>
             </div>
             
             <div class="integration-section" style="background: white; border: 2px solid black; border-radius: 8px; padding: 20px; margin-top: 20px;">
@@ -313,6 +350,7 @@
                 displayEvents(allEvents);
                 displayManualRemediation(allEvents);
                 updateStats(allEvents);
+                updateSummaryCards(allEvents);
                 
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('eventsTable').style.display = 'table';
@@ -700,6 +738,72 @@
                 console.error('Error checking Security Hub status:', error);
                 statusElement.innerHTML = '<span style="color: #d32f2f;">❌ Not Connected</span>';
                 toggleButton.style.display = 'inline-block';
+            }
+        }
+
+        function updateSummaryCards(events) {
+            // Get latest compliance status for each resource
+            const resourceMap = new Map();
+            events.forEach(event => {
+                const key = `${event.resourceId}-${event.configRuleName}`;
+                if (!resourceMap.has(key) || new Date(event.timestamp) > new Date(resourceMap.get(key).timestamp)) {
+                    resourceMap.set(key, event);
+                }
+            });
+            
+            const latestEvents = Array.from(resourceMap.values());
+            
+            // Technical controls (all 9 rules)
+            const technicalRules = [
+                's3-bucket-public-read-prohibited',
+                's3-bucket-public-write-prohibited',
+                's3-bucket-server-side-encryption-enabled',
+                's3-bucket-versioning-enabled',
+                's3-bucket-block-public-acl-enabled',
+                's3-bucket-logging-enabled',
+                's3-bucket-ssl-requests-only',
+                's3-bucket-object-lock-enabled',
+                's3-bucket-replication-enabled'
+            ];
+            
+            const technicalViolations = latestEvents.filter(e => 
+                e.complianceType === 'NON_COMPLIANT' && technicalRules.includes(e.configRuleName)
+            ).length;
+            
+            // Critical issues (public access violations)
+            const criticalRules = [
+                's3-bucket-public-read-prohibited',
+                's3-bucket-public-write-prohibited',
+                's3-bucket-block-public-acl-enabled'
+            ];
+            
+            const criticalIssues = latestEvents.filter(e => 
+                e.complianceType === 'NON_COMPLIANT' && criticalRules.includes(e.configRuleName)
+            ).length;
+            
+            // Calculate compliance score
+            const totalChecks = latestEvents.filter(e => technicalRules.includes(e.configRuleName)).length;
+            const compliantChecks = latestEvents.filter(e => 
+                e.complianceType === 'COMPLIANT' && technicalRules.includes(e.configRuleName)
+            ).length;
+            
+            const complianceScore = totalChecks > 0 ? Math.round((compliantChecks / totalChecks) * 100) : 0;
+            
+            // Update cards
+            document.getElementById('technicalViolations').textContent = technicalViolations;
+            document.getElementById('criticalIssues').textContent = criticalIssues;
+            
+            const scoreElement = document.getElementById('complianceScore');
+            scoreElement.textContent = complianceScore + '%';
+            
+            // Color code the score
+            scoreElement.className = 'big-number';
+            if (complianceScore >= 90) {
+                scoreElement.classList.add('score-green');
+            } else if (complianceScore >= 70) {
+                scoreElement.classList.add('score-yellow');
+            } else {
+                scoreElement.classList.add('score-red');
             }
         }
 
