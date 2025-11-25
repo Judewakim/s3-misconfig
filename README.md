@@ -68,19 +68,19 @@ All scans are executed using secure, cross-account STS role assumption and resul
     - AWS CLI configured (optionally)<br>
     - An active AWS account with CloudFormation permissions
 
-  2. 🚀 Deploy the client template via CLI:<br>
+  2a. 🚀 Deploy the client template via CLI:<br>
     Example:<br>
     `aws cloudformation deploy --stack-name WakimWorksS3ScannerLauncher--template-file WakimWorks-S3Scanner-Launcher.yaml --region us-east-1 --capabilities CAPABILITY_NAMED_IAM --parameter-overrides UserEmail=[YOUR_EMAIL] ExcludeBuckets=[BUCKETS_YOU_WANT_EXCLUDED] InvocationMode=[scanning_only OR scanning_and_autoremediation]`
 
-  3. 🖥 Deploy the client template via console:<br>
+  2b. 🖥 Deploy the client template via console:<br>
     Example:<br>
-    Go to AWS CloudFormation service **>** Create stack **>** Choose an existing template **>** Upload a template file **>** Upload the WakimWorks-S3Scanner-Launcher.yaml **>** Enter 'WakimWorksS3ScannerLauncher' as the stack name **>** add any buckets you would like to exclude, select the invocation mode (scan only or scan and autoremediate), and enter the email where you would like to receive scan results **>** accept the AWS acknowledgement **>** Submit
+    Go to AWS CloudFormation service **>** Create stack **>** Choose an existing template **>** Upload a template file **>** Upload the WakimWorks-S3Scanner-Launcher.yaml **>** Enter 'WakimWorksS3ScannerLauncher' as the stack name **>** add any buckets you would like to exclude, select the invocation mode (scan only or scan and autoremediate), and enter the email where you would like to receive scan results **>** accept the AWS acknowledgement **>** keep all other options as default **>** Submit
 
-  4. ✅ Upon stack creation, a scan will start automatically.
+  3. ✅ Upon stack creation, a scan will start automatically.
 
-  5. 📨 Results will be emailed to the UserEmail address.
+  4. 📨 Results will be emailed to the UserEmail address.
 
-  6. 🕘 Daily scans will continue via EventBridge.
+  5. 🕘 Daily scans will continue via EventBridge.
 
 ##### 🎯 USER EXPECTATIONS
 
