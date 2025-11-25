@@ -64,7 +64,7 @@ All scans are executed using secure, cross-account STS role assumption and resul
 
 ##### ⚙ DEPLOYMENT STEPS
 
-  1. 📋 Prerequisites:<br>
+  1a. 📋 Prerequisites:<br>
     - AWS CLI configured (optionally)<br>
     - An active AWS account with CloudFormation permissions
 
@@ -76,11 +76,11 @@ All scans are executed using secure, cross-account STS role assumption and resul
     Example:<br>
     Go to AWS CloudFormation service **>** Create stack **>** Choose an existing template **>** Upload a template file **>** Upload the WakimWorks-S3Scanner-Launcher.yaml **>** Enter 'WakimWorksS3ScannerLauncher' as the stack name **>** add any buckets you would like to exclude, select the invocation mode (scan only or scan and autoremediate), and enter the email where you would like to receive scan results **>** accept the AWS acknowledgement **>** keep all other options as default **>** Submit
 
-  3. ✅ Upon stack creation, a scan will start automatically.
+  3a. ✅ Upon stack creation, a scan will start automatically.
 
-  4. 📨 Results will be emailed to the UserEmail address.
+  4a. 📨 Results will be emailed to the UserEmail address.
 
-  5. 🕘 Daily scans will continue via EventBridge.
+  5a. 🕘 Daily scans will continue via EventBridge.
 
 ##### 🎯 USER EXPECTATIONS
 
