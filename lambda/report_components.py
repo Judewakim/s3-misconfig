@@ -173,7 +173,11 @@ def render_hipaa_control_table(hipaa_controls, get_hipaa_description):
     data = [['HIPAA Control', 'Description', 'Violations']]
     for control, count in hipaa_controls.items():
         if control != 'N/A':
-            data.append([control, get_hipaa_description(control), str(count)])
+            description = get_hipaa_description(control)
+            # Limit description to 60 characters
+            if len(description) > 60:
+                description = description[:57] + '...'
+            data.append([control, description, str(count)])
     
     if len(data) <= 1:
         return None
