@@ -1,0 +1,8 @@
+{
+  "GeneratorId": [
+    {
+      "Value": "s3-bucket",
+      "Comparison": "PREFIX"
+    }
+  ]
+}

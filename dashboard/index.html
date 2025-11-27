@@ -68,6 +68,21 @@
         .aws-link:hover { text-decoration: underline; }
         
         .placeholder { padding: 40px; text-align: center; color: #666; border: 2px solid black; border-radius: 8px; background: white; }
+        
+        .summary-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .summary-card { background: white; padding: 25px; border: 2px solid black; border-radius: 8px; text-align: center; }
+        .summary-card h3 { color: #666; font-size: 14px; margin-bottom: 15px; text-transform: uppercase; }
+        .summary-card .big-number { font-size: 48px; font-weight: bold; margin-bottom: 5px; }
+        .summary-card .note { font-size: 11px; color: #999; margin-top: 8px; line-height: 1.4; }
+        .score-green { color: #2ca02c; }
+        .score-yellow { color: #f57c00; }
+        .score-red { color: #d32f2f; }
+        .coming-soon { color: #999; font-style: italic; font-size: 14px; }
+        .time-window-btn { background: white; color: black; border: 2px solid black; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.3s; }
+        .time-window-btn:hover { background: #f0f0f0; }
+        .time-window-btn.active { background: #2ca02c; color: white; border-color: #2ca02c; }
+        .manual-info-banner { background: #fff3e0; border: 2px solid #f57c00; border-radius: 4px; padding: 12px; margin: 15px; font-size: 13px; line-height: 1.6; }
+        .manual-info-banner strong { color: #f57c00; }
     </style>
 </head>
 <body>
@@ -76,16 +91,91 @@
         
         <div class="nav-tabs">
             <div class="nav-tab active" onclick="showTab('summary')">Summary</div>
-            <div class="nav-tab" onclick="showTab('technical')">Technical Config Controls</div>
+            <div class="nav-tab" onclick="showTab('technical')">Technical Controls</div>
             <div class="nav-tab" onclick="showTab('operational')">Operational Controls</div>
-            <div class="nav-tab" onclick="showTab('administration')">Administration Controls</div>
+            <div class="nav-tab" onclick="showTab('administration')">Admin Controls</div>
             <div class="nav-tab" onclick="showTab('profile')">Profile</div>
         </div>
         
         <div id="summary" class="tab-content active">
-            <div class="placeholder">
-                <h2>Summary Dashboard</h2>
-                <p>Overview and summary metrics will be displayed here.</p>
+            <div class="summary-stats">
+                <div class="summary-card">
+                    <h3>Overall Compliance Score</h3>
+                    <div class="big-number" id="complianceScore">-</div>
+                    <div class="note">* Based on Technical Controls only. Ops and Admin controls coming soon.</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Technical Controls</h3>
+                    <div class="big-number" id="technicalViolations" style="color: #d32f2f;">0</div>
+                    <div style="font-size: 13px; color: #666; margin-top: 5px;">Violations</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Operational Controls</h3>
+                    <div class="coming-soon">Coming Soon</div>
+                    <div style="font-size: 13px; color: #999; margin-top: 5px;">Not yet monitored</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Admin Controls</h3>
+                    <div class="coming-soon">Coming Soon</div>
+                    <div style="font-size: 13px; color: #999; margin-top: 5px;">Not yet monitored</div>
+                </div>
+                
+                <div class="summary-card">
+                    <h3>Critical Issues</h3>
+                    <div class="big-number" id="criticalIssues" style="color: #d32f2f;">0</div>
+                    <div style="font-size: 13px; color: #666; margin-top: 5px;">Require immediate attention</div>
+                </div>
+            </div>
+            
+            <div class="integration-section" style="background: white; border: 2px solid black; border-radius: 8px; padding: 20px; margin-top: 20px;">
+                <h3 style="margin-bottom: 15px;">🔗 Integrations</h3>
+                <div id="securityHubStatus" style="margin-bottom: 10px;">
+                    <p><strong>Security Hub:</strong> <span id="shStatus" style="color: #666;">Loading...</span></p>
+                </div>
+                <div id="securityHubInstructions" style="display:none; background: #f5f5f5; padding: 20px; border-radius: 4px; margin-top: 10px; line-height: 1.8;">
+                    <h4 style="margin-bottom: 15px; font-size: 16px;">Enable Security Hub Integration</h4>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <strong>Step 1: Enable AWS Security Hub (if not already enabled)</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p style="margin-bottom: 5px;">Via CLI: <code style="background: #e0e0e0; padding: 3px 8px; border-radius: 3px; font-size: 13px;">aws securityhub enable-security-hub --region us-east-1</code></p>
+                            <p style="margin-top: 8px;">Via Console: AWS Security Hub → Get Started → Enable Security Hub</p>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <strong>Step 2: Update CloudFormation stack to enable integration</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p style="margin-bottom: 8px;"><strong>If deployed via deploy.py:</strong> Re-run the script (integration is auto-enabled)</p>
+                            <p style="margin-bottom: 8px;"><strong>If deployed manually:</strong> Run this command:</p>
+                            <pre style="background: #2d2d2d; color: #f8f8f2; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; margin: 0;">aws cloudformation update-stack \
+  --stack-name WakimWorksComplianceScanner \
+  --use-previous-template \
+  --parameters ParameterKey=EnableSecurityHubIntegration,ParameterValue=true \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-1</pre>
+                            <p style="margin-top: 10px; font-size: 13px; color: #666;"><em>Note: If you get "No updates are to be performed", the integration is already enabled!</em></p>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <strong>Step 3: Trigger a compliance event</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p>Modify an S3 bucket to trigger a Config rule evaluation. Once a finding is sent to Security Hub, this status will update to "✅ Connected"</p>
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 15px;">
+                        <strong>Step 4: Verify integration</strong>
+                        <div style="margin-left: 20px; margin-top: 8px;">
+                            <p>Security Hub console → Findings → Filter by "S3 HIPAA Compliance"</p>
+                        </div>
+                    </div>
+                </div>
+                <button id="toggleInstructions" onclick="toggleSecurityHubInstructions()" style="background: #2ca02c; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 10px; display: none;">Show Setup Instructions</button>
             </div>
         </div>
         
@@ -111,6 +201,11 @@
                     <span class="manual-toggle" id="manualToggle">−</span>
                 </div>
                 <div id="manualContent">
+                    <div class="manual-info-banner">
+                        ⚠️ <strong>Showing active issues from latest scan</strong> <span id="latestScanTime">(loading...)</span>
+                        <br>
+                        <small>This section always displays current state, regardless of time window selection above.</small>
+                    </div>
                     <table class="manual-table" id="manualTable">
                         <thead>
                             <tr>
@@ -133,6 +228,12 @@
             <div class="logs-section">
                 <div class="logs-header">📋 All Logs</div>
                 <div class="filters">
+                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+                        <label style="font-weight: bold;">Time Window:</label>
+                        <button class="time-window-btn active" onclick="setTimeWindow(30)">30 Days</button>
+                        <button class="time-window-btn" onclick="setTimeWindow(60)">60 Days</button>
+                        <button class="time-window-btn" onclick="setTimeWindow(90)">90 Days</button>
+                    </div>
                     <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
                     <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
                     <button class="generate-report" id="generateReportBtn" onclick="generateReport()">📄 Generate PDF Report</button>
@@ -195,6 +296,7 @@
         const REGION = 'us-east-1';
         const REPORT_API_URL = 'REPLACE_WITH_API_ENDPOINT';
         let allEvents = [];
+        let currentTimeWindow = 30;
         let manualRemediationRules = [
             's3-bucket-logging-enabled',
             's3-bucket-ssl-requests-only',
@@ -233,12 +335,29 @@
             return mapping[ruleName] || 'N/A';
         }
 
+        function setTimeWindow(days) {
+            currentTimeWindow = days;
+            
+            // Update button states
+            document.querySelectorAll('.time-window-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Reload events with new time window
+            loadEvents();
+        }
+
         async function loadEvents() {
             document.getElementById('loading').style.display = 'block';
             document.getElementById('error').style.display = 'none';
             document.getElementById('eventsTable').style.display = 'none';
 
             try {
+                // Calculate cutoff date based on time window
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - currentTimeWindow);
+                
                 const listUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/?list-type=2&prefix=compliance-events/`;
                 console.log('Fetching from:', listUrl);
                 const response = await fetch(listUrl);
@@ -248,23 +367,29 @@
                 
                 const parser = new DOMParser();
                 const xml = parser.parseFromString(text, 'text/xml');
-                const keys = Array.from(xml.getElementsByTagName('Key')).map(k => k.textContent);
-                console.log('Found keys:', keys.length, keys);
-
+                const contents = xml.getElementsByTagName('Contents');
+                
                 allEvents = [];
-                for (const key of keys.slice(0, 100)) {
-                    const eventUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
-                    console.log('Fetching event:', eventUrl);
-                    const eventResponse = await fetch(eventUrl);
-                    const event = await eventResponse.json();
-                    console.log('Event:', event);
-                    allEvents.push(event);
+                for (const content of contents) {
+                    const key = content.getElementsByTagName('Key')[0].textContent;
+                    const lastModified = new Date(content.getElementsByTagName('LastModified')[0].textContent);
+                    
+                    // Filter by time window
+                    if (lastModified >= cutoffDate) {
+                        const eventUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
+                        console.log('Fetching event:', eventUrl);
+                        const eventResponse = await fetch(eventUrl);
+                        const event = await eventResponse.json();
+                        console.log('Event:', event);
+                        allEvents.push(event);
+                    }
                 }
 
                 allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 displayEvents(allEvents);
-                displayManualRemediation(allEvents);
+                await loadManualRemediation();
                 updateStats(allEvents);
+                updateSummaryCards(allEvents);
                 
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('eventsTable').style.display = 'table';
@@ -272,6 +397,41 @@
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
                 document.getElementById('error').textContent = `Error loading events: ${error.message}`;
+            }
+        }
+
+        async function loadManualRemediation() {
+            try {
+                // Fetch latest compliance event (always current, ignores time window)
+                const listUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/?list-type=2&prefix=compliance-events/&max-keys=100`;
+                const response = await fetch(listUrl);
+                const text = await response.text();
+                
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(text, 'text/xml');
+                const contents = Array.from(xml.getElementsByTagName('Contents'));
+                
+                // Get most recent events
+                const latestEvents = [];
+                for (const content of contents.slice(0, 50)) {
+                    const key = content.getElementsByTagName('Key')[0].textContent;
+                    const eventUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
+                    const eventResponse = await fetch(eventUrl);
+                    const event = await eventResponse.json();
+                    latestEvents.push(event);
+                }
+                
+                latestEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                
+                // Update scan time
+                if (latestEvents.length > 0) {
+                    const scanTime = new Date(latestEvents[0].timestamp).toLocaleString();
+                    document.getElementById('latestScanTime').textContent = `(${scanTime})`;
+                }
+                
+                displayManualRemediation(latestEvents);
+            } catch (error) {
+                console.error('Error loading manual remediation:', error);
             }
         }
 
@@ -571,27 +731,159 @@
                     headers: {'Content-Type': 'application/json'}
                 });
                 
-                const data = await response.json();
+                const text = await response.text();
+                console.log('Response status:', response.status);
+                console.log('Response text:', text);
+                
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error(`Invalid JSON response: ${text.substring(0, 200)}`);
+                }
                 
                 if (data.downloadUrl) {
-                    window.location.href = data.downloadUrl;
+                    window.open(data.downloadUrl, '_blank');
                     btn.textContent = '✅ Report Generated!';
                     setTimeout(() => {
                         btn.textContent = '📄 Generate PDF Report';
                         btn.disabled = false;
                     }, 3000);
+                } else if (data.error) {
+                    throw new Error(data.error);
                 } else {
                     throw new Error('No download URL received');
                 }
             } catch (error) {
+                console.error('Report generation error:', error);
                 alert('Error generating report: ' + error.message);
                 btn.textContent = '📄 Generate PDF Report';
                 btn.disabled = false;
             }
         }
 
+        function toggleSecurityHubInstructions() {
+            const instructions = document.getElementById('securityHubInstructions');
+            const button = document.getElementById('toggleInstructions');
+            
+            if (instructions.style.display === 'none') {
+                instructions.style.display = 'block';
+                button.textContent = 'Hide Setup Instructions';
+            } else {
+                instructions.style.display = 'none';
+                button.textContent = 'Show Setup Instructions';
+            }
+        }
+
+        async function checkSecurityHubIntegration() {
+            const statusElement = document.getElementById('shStatus');
+            const toggleButton = document.getElementById('toggleInstructions');
+            
+            try {
+                // Check if SecurityHub forwarder Lambda exists
+                const response = await fetch(`https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/security-hub-status.json`);
+                
+                if (response.ok) {
+                    const status = await response.json();
+                    if (status.enabled) {
+                        statusElement.innerHTML = '<span style="color: #2ca02c;">✅ Connected</span>';
+                        toggleButton.style.display = 'none';
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.log('Security Hub status file not found, checking Lambda...');
+            }
+            
+            // Fallback: Check if Lambda exists by looking for recent Security Hub findings
+            try {
+                const listUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/?list-type=2&prefix=security-hub-status&max-keys=1`;
+                const response = await fetch(listUrl);
+                const text = await response.text();
+                
+                if (text.includes('security-hub-status')) {
+                    statusElement.innerHTML = '<span style="color: #2ca02c;">✅ Connected</span>';
+                    toggleButton.style.display = 'none';
+                } else {
+                    statusElement.innerHTML = '<span style="color: #d32f2f;">❌ Not Connected</span>';
+                    toggleButton.style.display = 'inline-block';
+                }
+            } catch (error) {
+                console.error('Error checking Security Hub status:', error);
+                statusElement.innerHTML = '<span style="color: #d32f2f;">❌ Not Connected</span>';
+                toggleButton.style.display = 'inline-block';
+            }
+        }
+
+        function updateSummaryCards(events) {
+            // Get latest compliance status for each resource
+            const resourceMap = new Map();
+            events.forEach(event => {
+                const key = `${event.resourceId}-${event.configRuleName}`;
+                if (!resourceMap.has(key) || new Date(event.timestamp) > new Date(resourceMap.get(key).timestamp)) {
+                    resourceMap.set(key, event);
+                }
+            });
+            
+            const latestEvents = Array.from(resourceMap.values());
+            
+            // Technical controls (all 9 rules)
+            const technicalRules = [
+                's3-bucket-public-read-prohibited',
+                's3-bucket-public-write-prohibited',
+                's3-bucket-server-side-encryption-enabled',
+                's3-bucket-versioning-enabled',
+                's3-bucket-block-public-acl-enabled',
+                's3-bucket-logging-enabled',
+                's3-bucket-ssl-requests-only',
+                's3-bucket-object-lock-enabled',
+                's3-bucket-replication-enabled'
+            ];
+            
+            const technicalViolations = latestEvents.filter(e => 
+                e.complianceType === 'NON_COMPLIANT' && technicalRules.includes(e.configRuleName)
+            ).length;
+            
+            // Critical issues (public access violations)
+            const criticalRules = [
+                's3-bucket-public-read-prohibited',
+                's3-bucket-public-write-prohibited',
+                's3-bucket-block-public-acl-enabled'
+            ];
+            
+            const criticalIssues = latestEvents.filter(e => 
+                e.complianceType === 'NON_COMPLIANT' && criticalRules.includes(e.configRuleName)
+            ).length;
+            
+            // Calculate compliance score
+            const totalChecks = latestEvents.filter(e => technicalRules.includes(e.configRuleName)).length;
+            const compliantChecks = latestEvents.filter(e => 
+                e.complianceType === 'COMPLIANT' && technicalRules.includes(e.configRuleName)
+            ).length;
+            
+            const complianceScore = totalChecks > 0 ? Math.round((compliantChecks / totalChecks) * 100) : 0;
+            
+            // Update cards
+            document.getElementById('technicalViolations').textContent = technicalViolations;
+            document.getElementById('criticalIssues').textContent = criticalIssues;
+            
+            const scoreElement = document.getElementById('complianceScore');
+            scoreElement.textContent = complianceScore + '%';
+            
+            // Color code the score
+            scoreElement.className = 'big-number';
+            if (complianceScore >= 90) {
+                scoreElement.classList.add('score-green');
+            } else if (complianceScore >= 70) {
+                scoreElement.classList.add('score-yellow');
+            } else {
+                scoreElement.classList.add('score-red');
+            }
+        }
+
         loadEvents();
         setInterval(loadEvents, 30000);
+        checkSecurityHubIntegration();
     </script>
 </body>
 </html>
