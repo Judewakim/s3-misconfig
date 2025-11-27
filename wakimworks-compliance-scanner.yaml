@@ -143,14 +143,14 @@ Resources:
         Status: Enabled
       LifecycleConfiguration:
         Rules:
-          - Id: TransitionToGlacier
+          - Id: ComplianceLogLifecycle
             Status: Enabled
             Transitions:
-              - TransitionInDays: 30
-                StorageClass: GLACIER
-          - Id: DeleteOldLogs
-            Status: Enabled
-            ExpirationInDays: 365
+              - TransitionInDays: 90
+                StorageClass: STANDARD_IA
+              - TransitionInDays: 365
+                StorageClass: DEEP_ARCHIVE
+            ExpirationInDays: 2555
       CorsConfiguration:
         CorsRules:
           - AllowedOrigins:
@@ -1026,6 +1026,7 @@ Resources:
         AllowOrigins:
           - '*'
         AllowMethods:
+          - GET
           - POST
           - OPTIONS
         AllowHeaders:
@@ -1044,6 +1045,20 @@ Resources:
     Properties:
       ApiId: !Ref ReportAPI
       RouteKey: 'POST /generate-report'
+      Target: !Sub 'integrations/${ReportAPIIntegration}'
+
+  ComplianceEventsRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ReportAPI
+      RouteKey: 'GET /compliance-events'
+      Target: !Sub 'integrations/${ReportAPIIntegration}'
+
+  CurrentIssuesRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ReportAPI
+      RouteKey: 'GET /current-issues'
       Target: !Sub 'integrations/${ReportAPIIntegration}'
 
   ReportAPIStage:

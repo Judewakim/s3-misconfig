@@ -68,8 +68,11 @@ def build_lambda_package():
                 arcname = file_path.relative_to(package_dir)
                 zipf.write(file_path, arcname)
         
-        # Add Lambda function
+        # Add Lambda functions
         zipf.write(lambda_dir / "report_generator.py", "report_generator.py")
+        zipf.write(lambda_dir / "report_components.py", "report_components.py")
+        zipf.write(lambda_dir / "report_styles.py", "report_styles.py")
+        zipf.write(lambda_dir / "report_data.py", "report_data.py")
         
         # Add logo
         zipf.write("logo.png", "logo.png")
@@ -89,7 +92,7 @@ def main():
     build_lambda_package()
     
     # Deploy CloudFormation stack
-    print("\n=== Deploying CloudFormation stack ===")
+    print("\n\n=== Deploying CloudFormation stack ===")
     print("Starting deployment...")
     
     # Check if stack exists
@@ -125,6 +128,7 @@ def main():
     
     # Poll stack status
     print("Monitoring stack deployment...")
+    print("This may take a few minutes...")
     while True:
         result = subprocess.run([
             "aws", "cloudformation", "describe-stacks",
@@ -155,7 +159,7 @@ def main():
         time.sleep(10)
     
     # Update Lambda function
-    print("\n=== Updating Lambda function ===")
+    print("\n\n=== Updating Lambda function ===")
     run_command([
         "aws", "lambda", "update-function-code",
         "--function-name", "wakimworks-report-generator",
@@ -169,7 +173,7 @@ def main():
                     "--region", "us-east-1"], check=True)
     
     # Get API endpoint
-    print("\n=== Deploying dashboard ===")
+    print("\n\n=== Deploying dashboard ===")
     api_url = run_command([
         "aws", "cloudformation", "describe-stacks",
         "--stack-name", "WakimWorksComplianceScanner",
@@ -231,25 +235,25 @@ def main():
                  "--region", "us-east-1"], show_output=True)
     print("Dashboard files uploaded successfully!")
     
-    # Invalidate CloudFront cache
-    print("\nInvalidating CloudFront cache...")
-    cloudfront_id = run_command([
-        "aws", "cloudformation", "describe-stacks",
-        "--stack-name", "WakimWorksComplianceScanner",
-        "--query", "Stacks[0].Outputs[?OutputKey=='DashboardURL'].OutputValue",
-        "--output", "text",
-        "--region", "us-east-1"
-    ]).split('.')[0].replace('https://', '')
+    # # Invalidate CloudFront cache
+    # print("\nInvalidating CloudFront cache...")
+    # cloudfront_id = run_command([
+    #     "aws", "cloudformation", "describe-stacks",
+    #     "--stack-name", "WakimWorksComplianceScanner",
+    #     "--query", "Stacks[0].Outputs[?OutputKey=='DashboardURL'].OutputValue",
+    #     "--output", "text",
+    #     "--region", "us-east-1"
+    # ]).split('.')[0].replace('https://', '')
     
-    try:
-        run_command([
-            "aws", "cloudfront", "create-invalidation",
-            "--distribution-id", cloudfront_id,
-            "--paths", "/*"
-        ], allow_failure=True)
-        print("✓ CloudFront cache invalidated")
-    except:
-        print("⚠ Could not invalidate CloudFront cache (may need to wait for propagation)")
+    # try:
+    #     run_command([
+    #         "aws", "cloudfront", "create-invalidation",
+    #         "--distribution-id", cloudfront_id,
+    #         "--paths", "/*"
+    #     ], allow_failure=True)
+    #     print("CloudFront cache invalidated")
+    # except:
+    #     print("Could not invalidate CloudFront cache (may need to wait for propagation)")
     
     # Clean up temp file
     if temp_index.exists():
@@ -274,15 +278,15 @@ def main():
     ])
     
     print("\n" + "=" * 50)
-    print("✅ Deployment Complete!")
+    print("Deployment Complete!")
     print("=" * 50)
     print(f"Dashboard URL: {cloudfront_url}")
     print(f"Report API URL: {api_url}")
     print(f"\nSecurity Hub Integration: {sh_status}")
-    print("2. Visit the Dashboard URL above")
+    print("- Visit the Dashboard URL above")
 
     if sh_status == "Enabled":
-        print("4. Check Security Hub console for findings (after compliance event)")
+        print("- Check Security Hub console for findings (after compliance event)")
     print("=" * 50)
     
     # Keep terminal open

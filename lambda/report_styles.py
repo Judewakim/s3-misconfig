@@ -51,9 +51,6 @@ def get_typography_styles():
             textColor=colors_palette['AWS_DARK_BLUE'],
             spaceBefore=20,
             spaceAfter=10,
-            borderColor=colors_palette['AWS_ORANGE'],
-            borderWidth=3,
-            borderPadding=8,
             fontName='Helvetica-Bold'
         ),
         
@@ -82,17 +79,17 @@ def get_typography_styles():
         'BodyText': ParagraphStyle(
             'BodyText',
             parent=base_styles['Normal'],
-            fontSize=10,
+            fontSize=12,
             textColor=colors.black,
             alignment=TA_LEFT,
-            leading=14,
+            leading=16,
             fontName='Helvetica'
         ),
         
         'EmphasisText': ParagraphStyle(
             'EmphasisText',
             parent=base_styles['Normal'],
-            fontSize=10,
+            fontSize=12,
             textColor=colors_palette['CRITICAL'],
             fontName='Helvetica-Oblique',
             backColor=colors_palette['LIGHT_YELLOW'],
@@ -102,7 +99,7 @@ def get_typography_styles():
         'MonospaceText': ParagraphStyle(
             'MonospaceText',
             parent=base_styles['Code'],
-            fontSize=8,
+            fontSize=10,
             textColor=colors.black,
             fontName='Courier',
             backColor=colors.HexColor('#f8f9fa'),
@@ -116,7 +113,7 @@ def get_typography_styles():
         'MetadataText': ParagraphStyle(
             'MetadataText',
             parent=base_styles['Normal'],
-            fontSize=8,
+            fontSize=10,
             textColor=colors_palette['GREY'],
             fontName='Helvetica'
         ),
@@ -124,7 +121,7 @@ def get_typography_styles():
         'BulletText': ParagraphStyle(
             'BulletText',
             parent=base_styles['Normal'],
-            fontSize=10,
+            fontSize=12,
             textColor=colors.black,
             fontName='Helvetica',
             leftIndent=20,
@@ -134,7 +131,7 @@ def get_typography_styles():
         'CalloutText': ParagraphStyle(
             'CalloutText',
             parent=base_styles['Normal'],
-            fontSize=9,
+            fontSize=11,
             textColor=colors.black,
             fontName='Helvetica',
             backColor=colors_palette['LIGHT_YELLOW'],

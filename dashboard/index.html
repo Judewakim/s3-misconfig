@@ -78,6 +78,11 @@
         .score-yellow { color: #f57c00; }
         .score-red { color: #d32f2f; }
         .coming-soon { color: #999; font-style: italic; font-size: 14px; }
+        .time-window-btn { background: white; color: black; border: 2px solid black; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.3s; }
+        .time-window-btn:hover { background: #f0f0f0; }
+        .time-window-btn.active { background: #2ca02c; color: white; border-color: #2ca02c; }
+        .manual-info-banner { background: #fff3e0; border: 2px solid #f57c00; border-radius: 4px; padding: 12px; margin: 15px; font-size: 13px; line-height: 1.6; }
+        .manual-info-banner strong { color: #f57c00; }
     </style>
 </head>
 <body>
@@ -196,6 +201,11 @@
                     <span class="manual-toggle" id="manualToggle">−</span>
                 </div>
                 <div id="manualContent">
+                    <div class="manual-info-banner">
+                        ⚠️ <strong>Showing active issues from latest scan</strong> <span id="latestScanTime">(loading...)</span>
+                        <br>
+                        <small>This section always displays current state, regardless of time window selection above.</small>
+                    </div>
                     <table class="manual-table" id="manualTable">
                         <thead>
                             <tr>
@@ -218,6 +228,12 @@
             <div class="logs-section">
                 <div class="logs-header">📋 All Logs</div>
                 <div class="filters">
+                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
+                        <label style="font-weight: bold;">Time Window:</label>
+                        <button class="time-window-btn active" onclick="setTimeWindow(30)">30 Days</button>
+                        <button class="time-window-btn" onclick="setTimeWindow(60)">60 Days</button>
+                        <button class="time-window-btn" onclick="setTimeWindow(90)">90 Days</button>
+                    </div>
                     <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
                     <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
                     <button class="generate-report" id="generateReportBtn" onclick="generateReport()">📄 Generate PDF Report</button>
@@ -280,6 +296,7 @@
         const REGION = 'us-east-1';
         const REPORT_API_URL = 'REPLACE_WITH_API_ENDPOINT';
         let allEvents = [];
+        let currentTimeWindow = 30;
         let manualRemediationRules = [
             's3-bucket-logging-enabled',
             's3-bucket-ssl-requests-only',
@@ -318,12 +335,29 @@
             return mapping[ruleName] || 'N/A';
         }
 
+        function setTimeWindow(days) {
+            currentTimeWindow = days;
+            
+            // Update button states
+            document.querySelectorAll('.time-window-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Reload events with new time window
+            loadEvents();
+        }
+
         async function loadEvents() {
             document.getElementById('loading').style.display = 'block';
             document.getElementById('error').style.display = 'none';
             document.getElementById('eventsTable').style.display = 'none';
 
             try {
+                // Calculate cutoff date based on time window
+                const cutoffDate = new Date();
+                cutoffDate.setDate(cutoffDate.getDate() - currentTimeWindow);
+                
                 const listUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/?list-type=2&prefix=compliance-events/`;
                 console.log('Fetching from:', listUrl);
                 const response = await fetch(listUrl);
@@ -333,22 +367,27 @@
                 
                 const parser = new DOMParser();
                 const xml = parser.parseFromString(text, 'text/xml');
-                const keys = Array.from(xml.getElementsByTagName('Key')).map(k => k.textContent);
-                console.log('Found keys:', keys.length, keys);
-
+                const contents = xml.getElementsByTagName('Contents');
+                
                 allEvents = [];
-                for (const key of keys.slice(0, 100)) {
-                    const eventUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
-                    console.log('Fetching event:', eventUrl);
-                    const eventResponse = await fetch(eventUrl);
-                    const event = await eventResponse.json();
-                    console.log('Event:', event);
-                    allEvents.push(event);
+                for (const content of contents) {
+                    const key = content.getElementsByTagName('Key')[0].textContent;
+                    const lastModified = new Date(content.getElementsByTagName('LastModified')[0].textContent);
+                    
+                    // Filter by time window
+                    if (lastModified >= cutoffDate) {
+                        const eventUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
+                        console.log('Fetching event:', eventUrl);
+                        const eventResponse = await fetch(eventUrl);
+                        const event = await eventResponse.json();
+                        console.log('Event:', event);
+                        allEvents.push(event);
+                    }
                 }
 
                 allEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
                 displayEvents(allEvents);
-                displayManualRemediation(allEvents);
+                await loadManualRemediation();
                 updateStats(allEvents);
                 updateSummaryCards(allEvents);
                 
@@ -358,6 +397,41 @@
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('error').style.display = 'block';
                 document.getElementById('error').textContent = `Error loading events: ${error.message}`;
+            }
+        }
+
+        async function loadManualRemediation() {
+            try {
+                // Fetch latest compliance event (always current, ignores time window)
+                const listUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/?list-type=2&prefix=compliance-events/&max-keys=100`;
+                const response = await fetch(listUrl);
+                const text = await response.text();
+                
+                const parser = new DOMParser();
+                const xml = parser.parseFromString(text, 'text/xml');
+                const contents = Array.from(xml.getElementsByTagName('Contents'));
+                
+                // Get most recent events
+                const latestEvents = [];
+                for (const content of contents.slice(0, 50)) {
+                    const key = content.getElementsByTagName('Key')[0].textContent;
+                    const eventUrl = `https://${AUDIT_BUCKET}.s3.${REGION}.amazonaws.com/${key}`;
+                    const eventResponse = await fetch(eventUrl);
+                    const event = await eventResponse.json();
+                    latestEvents.push(event);
+                }
+                
+                latestEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+                
+                // Update scan time
+                if (latestEvents.length > 0) {
+                    const scanTime = new Date(latestEvents[0].timestamp).toLocaleString();
+                    document.getElementById('latestScanTime').textContent = `(${scanTime})`;
+                }
+                
+                displayManualRemediation(latestEvents);
+            } catch (error) {
+                console.error('Error loading manual remediation:', error);
             }
         }
 
