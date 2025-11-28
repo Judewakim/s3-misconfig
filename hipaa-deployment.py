@@ -25,7 +25,7 @@ def run_command(cmd, cwd=None, show_output=False, allow_failure=False):
 def download_deployment_files():
     """Download all required deployment files from S3"""
     print("\n=== Downloading deployment files from S3 ===")
-    base_url = "https://public-templates.s3.amazonaws.com/s3-scanner"
+    base_url = "https://wakimworks-public-templates.s3.amazonaws.com/s3-scanner"
     
     files = [
         ("hipaa-compliance-system.yaml", "hipaa-compliance-system.yaml"),
