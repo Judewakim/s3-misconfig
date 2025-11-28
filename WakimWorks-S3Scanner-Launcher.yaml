@@ -141,6 +141,15 @@ Resources:
                   - sts:GetCallerIdentity
                 Resource: "*"
 
+              # - Sid: EC2SelfTerminate
+              #   Effect: Allow
+              #   Action:
+              #     - ec2:TerminateInstances
+              #   Resource: "*"
+              #   Condition:
+              #     StringEquals:
+              #       "ec2:ResourceTag/aws:cloudformation:stack-name": !Ref AWS::StackName
+
   # ------------------------------
   # EC2 Instance Profile
   # ------------------------------
@@ -159,7 +168,7 @@ Resources:
     Properties:
       InstanceType: t3.micro
       IamInstanceProfile: !Ref S3ScannerInstanceProfile
-      ImageId: !Ref AMIId  
+      ImageId: !Ref AMIId
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash

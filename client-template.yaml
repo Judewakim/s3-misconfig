@@ -82,7 +82,9 @@ Resources:
         Statement:
           - Effect: Allow
             Principal:
-              AWS: !Sub "arn:aws:iam::390488375643:role/S3SecurityScannerLambdaRole"  # Hardcoded seller account ID
+              AWS: 
+                - !Sub "arn:aws:iam::390488375643:role/S3SecurityScannerLambdaRole"  # Lambda execution role
+                - !Sub "arn:aws:iam::390488375643:root"  # Allow seller account root (for Lambda service)
             Action: sts:AssumeRole
             Condition:
               StringEquals:
@@ -189,6 +191,10 @@ Resources:
                   if missing_props:
                       raise ValueError(f"Missing required properties: {', '.join(missing_props)}")
                   account_id = context.invoked_function_arn.split(':')[4]
+                  
+                  # Determine if this is a scan trigger or registration
+                  is_scan_trigger = props.get('TriggerScan', 'false') == 'true'
+                  
                   payload = {
                       'AccountId': account_id,
                       'RoleArn': props['RoleArn'],
@@ -196,18 +202,16 @@ Resources:
                       'InvocationMode': props['InvocationMode'],
                       'ExcludeBuckets': props['ExcludeBuckets'],
                       'ExternalId': props['ExternalId'],
-                      'Action': 'register' if request_type in ['Create', 'Update'] else 'deregister'
+                      'Action': 'register' if (request_type in ['Create', 'Update'] and not is_scan_trigger) else 'deregister'
                   }
-                  # Send to both queues
+                  
+                  # Send message to appropriate queue
                   sqs.send_message(
-                      QueueUrl=props['SqsQueueUrl'],  # RegistrationQueue
+                      QueueUrl=props['SqsQueueUrl'],
                       MessageBody=json.dumps(payload)
                   )
-                  # sqs.send_message(
-                  #     QueueUrl='https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerQueue',
-                  #     MessageBody=json.dumps(payload)
-                  # )
-                  logger.info(f"Sent SQS message for AccountId={account_id}, Action={payload['Action']}")
+                  
+                  logger.info(f"Sent SQS message for AccountId={account_id}, Action={payload['Action']}, IsScanTrigger={is_scan_trigger}")
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, {'Status': payload['Action'].capitalize()})
               except Exception as e:
                   logger.error(f"Error processing {request_type}: {str(e)}")
@@ -228,9 +232,10 @@ Resources:
       ExternalId: !GetAtt ExternalIdCustomResource.ExternalId  # Pass generated ExternalId
       SqsQueueUrl: !Sub "https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerRegistrationQueue"  # Hardcode or provide via docs
 
-  # ScannerCustomResource
+  # ScannerCustomResource - This triggers the actual scan
   ScannerCustomResource:
     Type: Custom::ScannerTrigger
+    DependsOn: RegistrationCustomResource
     Properties:
       ServiceToken: !GetAtt RegistrationLambda.Arn
       RoleArn: !GetAtt ScannerAssumeRole.Arn
@@ -240,6 +245,7 @@ Resources:
       ExcludeBuckets: !Ref ExcludeBuckets
       ExternalId: !GetAtt ExternalIdCustomResource.ExternalId
       SqsQueueUrl: !Sub "https://sqs.us-east-1.amazonaws.com/390488375643/S3ScannerQueue"
+      TriggerScan: "true"
 
 Outputs:
   ScannerRoleArn:
