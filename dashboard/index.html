@@ -130,6 +130,13 @@
                 </div>
             </div>
             
+            <div class="reports-section" style="background: white; border: 2px solid black; border-radius: 8px; padding: 20px; margin-top: 20px;">
+                <h3 style="margin-bottom: 15px;">📄 Reports</h3>
+                <div style="margin-bottom: 10px;">
+                    <p><strong>Generate Report:</strong> <button class="generate-report" id="generateReportBtn" onclick="generateReport()" style="float: none; margin-left: 10px;">📄 Generate PDF Report</button></p>
+                </div>
+            </div>
+            
             <div class="integration-section" style="background: white; border: 2px solid black; border-radius: 8px; padding: 20px; margin-top: 20px;">
                 <h3 style="margin-bottom: 15px;">🔗 Integrations</h3>
                 <div id="securityHubStatus" style="margin-bottom: 10px;">
@@ -236,7 +243,6 @@
                     </div>
                     <input type="text" id="searchInput" placeholder="Search by resource ID or rule name..." onkeyup="filterTable()">
                     <button class="refresh" onclick="loadEvents()">🔄 Refresh</button>
-                    <button class="generate-report" id="generateReportBtn" onclick="generateReport()">📄 Generate PDF Report</button>
                 </div>
 
                 <div id="loading" class="loading">Loading compliance events...</div>
