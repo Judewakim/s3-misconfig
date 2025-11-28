@@ -208,20 +208,61 @@ def scan_buckets(s3_client, config):
         try:
             policy = s3_client.get_bucket_policy(Bucket=bucket_name)
             policy_json = json.loads(policy['Policy'])
-            wildcard_statements = [
-                stmt for stmt in policy_json.get('Statement', [])
-                if stmt.get('Principal') == '*' or
-                   any('s3:*' in (stmt.get('Action', []) if isinstance(stmt.get('Action'), list) else [stmt.get('Action')])) or
-                   any('*' in (stmt.get('Resource', []) if isinstance(stmt.get('Resource'), list) else [stmt.get('Resource')]))
-            ]
+            wildcard_statements = []
+            for stmt in policy_json.get('Statement', []):
+                action = stmt.get('Action', [])
+                resource = stmt.get('Resource', [])
+                
+                # Normalize to list - ensure we handle all types properly
+                if isinstance(action, bool):
+                    action_list = []
+                elif isinstance(action, list):
+                    action_list = action
+                elif action:
+                    action_list = [action]
+                else:
+                    action_list = []
+                
+                if isinstance(resource, bool):
+                    resource_list = []
+                elif isinstance(resource, list):
+                    resource_list = resource
+                elif resource:
+                    resource_list = [resource]
+                else:
+                    resource_list = []
+                
+                if (stmt.get('Principal') == '*' or
+                    any('s3:*' in str(a) for a in action_list) or
+                    any('*' in str(r) for r in resource_list)):
+                    wildcard_statements.append(stmt)
             if wildcard_statements:
                 details = []
                 for stmt in wildcard_statements:
                     if stmt.get('Principal') == '*':
                         details.append('Wildcard Principal')
-                    if any('s3:*' in (stmt.get('Action', []) if isinstance(stmt.get('Action'), list) else [stmt.get('Action')])):
+                    # Fix: Ensure we're working with strings, not booleans
+                    action = stmt.get('Action', [])
+                    if isinstance(action, bool):
+                        action_list_check = []
+                    elif isinstance(action, list):
+                        action_list_check = action
+                    elif action:
+                        action_list_check = [action]
+                    else:
+                        action_list_check = []
+                    if any('s3:*' in str(a) for a in action_list_check):
                         details.append('Wildcard Action')
-                    if any('*' in (stmt.get('Resource', []) if isinstance(stmt.get('Resource'), list) else [stmt.get('Resource')])):
+                    resource = stmt.get('Resource', [])
+                    if isinstance(resource, bool):
+                        resource_list_check = []
+                    elif isinstance(resource, list):
+                        resource_list_check = resource
+                    elif resource:
+                        resource_list_check = [resource]
+                    else:
+                        resource_list_check = []
+                    if any('*' in str(r) for r in resource_list_check):
                         details.append('Wildcard Resource')
                 bucket_risks.append({
                     'type': 'PermissivePolicy',
@@ -393,9 +434,35 @@ def remediate_risks(s3_client, risks, config):
                     policy = s3_client.get_bucket_policy(Bucket=bucket_name)
                     policy_json = json.loads(policy['Policy'])
                     statements = policy_json.get('Statement', [])
-                    updated_statements = [stmt for stmt in statements if stmt.get('Principal') != '*' and
-                                         not any('s3:*' in (stmt.get('Action', []) if isinstance(stmt.get('Action'), list) else [stmt.get('Action')])) and
-                                         not any('*' in (stmt.get('Resource', []) if isinstance(stmt.get('Resource'), list) else [stmt.get('Resource')]))]
+                    updated_statements = []
+                    for stmt in statements:
+                        action = stmt.get('Action', [])
+                        resource = stmt.get('Resource', [])
+                        # Normalize to lists, handling booleans
+                        if isinstance(action, bool):
+                            action_list = []
+                        elif isinstance(action, list):
+                            action_list = action
+                        elif action:
+                            action_list = [action]
+                        else:
+                            action_list = []
+                        
+                        if isinstance(resource, bool):
+                            resource_list = []
+                        elif isinstance(resource, list):
+                            resource_list = resource
+                        elif resource:
+                            resource_list = [resource]
+                        else:
+                            resource_list = []
+                        
+                        # Keep statement if it doesn't have wildcards
+                        if (stmt.get('Principal') != '*' and
+                            not any('s3:*' in str(a) for a in action_list) and
+                            not any('*' in str(r) for r in resource_list)):
+                            updated_statements.append(stmt)
+                    
                     if len(updated_statements) < len(statements):
                         new_policy = json.dumps({'Version': policy_json['Version'], 'Statement': updated_statements})
                         s3_client.put_bucket_policy(Bucket=bucket_name, Policy=new_policy)
