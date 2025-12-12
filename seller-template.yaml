@@ -30,6 +30,29 @@ Resources:
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST  # On-demand for MVP
 
+  # S3 Bucket for Scan Reports (JSON and PDF)
+  ReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: wakimworks-s3scanner-reports
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldReports
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
   # SQS Queue for Registrations
   RegistrationQueue:
     Type: AWS::SQS::Queue
@@ -237,12 +260,15 @@ Resources:
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref LambdaCodeS3Key
-      Timeout: 300  # Longer for potential multi-tenant
-      MemorySize: 256
+      Timeout: 300  # Increased for PDF generation
+      MemorySize: 512  # Increased for WeasyPrint
+      Layers:
+        - arn:aws:lambda:us-east-1:390488375643:layer:s3scanner-weasyprint:1
       Environment:
         Variables:
           DYNAMODB_TABLE: !Ref ClientMetadataTable
           SENDER_EMAIL: !Ref SenderEmail
+          REPORTS_BUCKET: !Ref ReportsBucket
 
   # IAM Role for Scanner Lambda
   ScannerLambdaRole:
@@ -283,6 +309,11 @@ Resources:
                   - sqs:GetQueueAttributes
                   - sqs:ReceiveMessage
                 Resource: !GetAtt RegistrationQueue.Arn
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${ReportsBucket.Arn}/*'
 
   # SQS Trigger for Immediate Scans
   ScannerSqsTrigger:

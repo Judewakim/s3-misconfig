@@ -141,14 +141,14 @@ Resources:
                   - sts:GetCallerIdentity
                 Resource: "*"
 
-              # - Sid: EC2SelfTerminate
-              #   Effect: Allow
-              #   Action:
-              #     - ec2:TerminateInstances
-              #   Resource: "*"
-              #   Condition:
-              #     StringEquals:
-              #       "ec2:ResourceTag/aws:cloudformation:stack-name": !Ref AWS::StackName
+              - Sid: EC2SelfTerminate
+                Effect: Allow
+                Action:
+                  - ec2:TerminateInstances
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    "ec2:ResourceTag/aws:cloudformation:stack-name": !Ref AWS::StackName
 
   # ------------------------------
   # EC2 Instance Profile
