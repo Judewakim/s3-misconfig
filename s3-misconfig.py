@@ -5,10 +5,13 @@ import os
 from botocore.exceptions import ClientError
 import base64
 import urllib3
+import random
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.utils import formataddr
+from weasyprint import HTML, CSS
+from io import BytesIO
 
 def lambda_handler(event, context):
     # Log the full event for debugging (critical for stuck issues)
@@ -65,7 +68,8 @@ def process_client(client, ses_client):
         'account_id': account_id,
         'email': email,
         'summary': {'total_buckets': 0, 'high_risk': 0, 'error': 0},
-        'buckets': []
+        'buckets': [],
+        'scan_start_time': datetime.now()
     }
 
     try:
@@ -92,11 +96,12 @@ def process_client(client, ses_client):
         # Scan buckets
         bucket_risks = scan_buckets(s3_client, config)
         result['summary']['total_buckets'] = len(bucket_risks)
+        result['scan_duration'] = (datetime.now() - result['scan_start_time']).total_seconds()
         # Count individual high-risk issues
         result['summary']['high_risk_issues'] = sum(
             len([r for r in b['risks'] if r['type'] in [
                 'PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL',
-                'NoEncryption', 'VersioningDisabled'
+                'NoEncryption', 'VersioningDisabled', 'WildcardCORS'
             ]]) for b in bucket_risks if not b.get('skipped')
         )
         result['summary']['errors'] = sum(1 for b in bucket_risks if b.get('severity') == 'error')
@@ -107,9 +112,12 @@ def process_client(client, ses_client):
             fixes_applied = remediate_risks(s3_client, bucket_risks, config)
             result['fixes'] = fixes_applied
 
+        # Store results and generate download URLs
+        json_url, pdf_url = store_scan_results(result, account_id)
+
         # Send email notification
         if email:
-            send_email_notification(email, result, remediate, ses_client)
+            send_email_notification(email, result, remediate, json_url, pdf_url, ses_client)
 
         print(f"Processed client {account_id}: {len(bucket_risks)} buckets scanned")
         return result
@@ -368,6 +376,98 @@ def scan_buckets(s3_client, config):
                 severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
                 print(f"  - Error checking object lock: {e}")
 
+        # Check 7: Server Access Logging
+        try:
+            logging_config = s3_client.get_bucket_logging(Bucket=bucket_name)
+            if 'LoggingEnabled' not in logging_config:
+                bucket_risks.append({
+                    'type': 'NoLogging',
+                    'details': 'Server access logging not enabled'
+                })
+                severity = 'medium' if severity_rank('medium') > severity_rank(severity) else severity
+                print(f"  - No server access logging")
+        except ClientError as e:
+            bucket_risks.append({
+                'type': 'LoggingError',
+                'details': f"Error checking logging: {str(e)}"
+            })
+            severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
+            print(f"  - Error checking logging: {e}")
+
+        # Check 8: CORS Policy
+        try:
+            cors = s3_client.get_bucket_cors(Bucket=bucket_name)
+            wildcard_origins = []
+            for rule in cors.get('CORSRules', []):
+                origins = rule.get('AllowedOrigins', [])
+                if '*' in origins:
+                    wildcard_origins.extend(origins)
+            if wildcard_origins:
+                bucket_risks.append({
+                    'type': 'WildcardCORS',
+                    'details': f"Wildcard CORS origin detected: {', '.join(set(wildcard_origins))}"
+                })
+                severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
+                print(f"  - Wildcard CORS detected")
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'NoSuchCORSConfiguration':
+                bucket_risks.append({
+                    'type': 'CORSError',
+                    'details': f"Error checking CORS: {str(e)}"
+                })
+                severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
+                print(f"  - Error checking CORS: {e}")
+
+        # Check 9: MFA Delete (enhance versioning check)
+        try:
+            versioning_check = s3_client.get_bucket_versioning(Bucket=bucket_name)
+            v_status = versioning_check.get('Status', 'Disabled')
+            mfa_delete = versioning_check.get('MFADelete', 'Disabled')
+            if v_status == 'Enabled' and mfa_delete == 'Disabled':
+                bucket_risks.append({
+                    'type': 'MFADeleteDisabled',
+                    'details': 'Versioning enabled but MFA Delete not configured'
+                })
+                severity = 'low' if severity_rank('low') > severity_rank(severity) else severity
+                print(f"  - MFA Delete disabled")
+        except ClientError as e:
+            pass  # Already handled in Check 5
+
+        # Check 10: Lifecycle Rules
+        try:
+            s3_client.get_bucket_lifecycle_configuration(Bucket=bucket_name)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchLifecycleConfiguration':
+                bucket_risks.append({
+                    'type': 'NoLifecyclePolicy',
+                    'details': 'No lifecycle policy configured for cost optimization'
+                })
+                severity = 'low' if severity_rank('low') > severity_rank(severity) else severity
+                print(f"  - No lifecycle policy")
+
+        # Check 11: Replication Config
+        try:
+            replication = s3_client.get_bucket_replication(Bucket=bucket_name)
+            # Check 12: Replication Encryption (if replication exists)
+            for rule in replication.get('ReplicationConfiguration', {}).get('Rules', []):
+                dest = rule.get('Destination', {})
+                if 'EncryptionConfiguration' not in dest:
+                    bucket_risks.append({
+                        'type': 'UnencryptedReplication',
+                        'details': 'Replication configured but destination not encrypted'
+                    })
+                    severity = 'medium' if severity_rank('medium') > severity_rank(severity) else severity
+                    print(f"  - Unencrypted replication detected")
+                    break
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ReplicationConfigurationNotFoundError':
+                bucket_risks.append({
+                    'type': 'NoReplication',
+                    'details': 'No cross-region replication configured'
+                })
+                severity = 'low' if severity_rank('low') > severity_rank(severity) else severity
+                print(f"  - No replication configured")
+
         risks.append({
             'name': bucket_name,
             'risks': bucket_risks,
@@ -430,50 +530,8 @@ def remediate_risks(s3_client, risks, config):
                     fixes.append({'bucket': bucket_name, 'action': 'enabled_public_access_block', 'status': 'failed', 'reason': str(e)})
                     print(f"Error enabling Public Access Block for {bucket_name}: {str(e)}")
             elif risk_type == 'PermissivePolicy':
-                try:
-                    policy = s3_client.get_bucket_policy(Bucket=bucket_name)
-                    policy_json = json.loads(policy['Policy'])
-                    statements = policy_json.get('Statement', [])
-                    updated_statements = []
-                    for stmt in statements:
-                        action = stmt.get('Action', [])
-                        resource = stmt.get('Resource', [])
-                        # Normalize to lists, handling booleans
-                        if isinstance(action, bool):
-                            action_list = []
-                        elif isinstance(action, list):
-                            action_list = action
-                        elif action:
-                            action_list = [action]
-                        else:
-                            action_list = []
-                        
-                        if isinstance(resource, bool):
-                            resource_list = []
-                        elif isinstance(resource, list):
-                            resource_list = resource
-                        elif resource:
-                            resource_list = [resource]
-                        else:
-                            resource_list = []
-                        
-                        # Keep statement if it doesn't have wildcards
-                        if (stmt.get('Principal') != '*' and
-                            not any('s3:*' in str(a) for a in action_list) and
-                            not any('*' in str(r) for r in resource_list)):
-                            updated_statements.append(stmt)
-                    
-                    if len(updated_statements) < len(statements):
-                        new_policy = json.dumps({'Version': policy_json['Version'], 'Statement': updated_statements})
-                        s3_client.put_bucket_policy(Bucket=bucket_name, Policy=new_policy)
-                        fixes.append({'bucket': bucket_name, 'action': 'removed_permissive_policy', 'status': 'success'})
-                        print(f"- Removed permissive policy")
-                    else:
-                        fixes.append({'bucket': bucket_name, 'action': 'removed_permissive_policy', 'status': 'skipped', 'reason': 'No changes or complex policy'})
-                        print(f"Skipped permissive policy remediation: no changes or complex")
-                except ClientError as e:
-                    fixes.append({'bucket': bucket_name, 'action': 'removed_permissive_policy', 'status': 'failed', 'reason': str(e)})
-                    print(f"Error fixing permissive policy: {str(e)}")
+                fixes.append({'bucket': bucket_name, 'action': 'removed_permissive_policy', 'status': 'skipped', 'reason': 'Bucket policy modifications require manual review for production safety'})
+                print(f"Skipped permissive policy remediation for {bucket_name}: requires manual review")
             elif risk_type == 'NoEncryption' or risk_type == 'NonKmsEncryption':
                 try:
                     s3_client.put_bucket_encryption(
@@ -504,23 +562,48 @@ def remediate_risks(s3_client, risks, config):
         print(f"Completed remediation for bucket: {bucket_name}")
     return fixes
 
-def send_email_notification(email, results, remediate, ses_client):
+def send_email_notification(email, results, remediate, json_url, pdf_url, ses_client):
     """
     Send email notification with scan results using SES
     """
     try:
-        if remediate:
-            fixes = results.get('fixes', [])
-            fixed_count = len([f for f in fixes if f['status'] == 'success'])
-            needs_help_count = len([f for f in fixes if f['status'] in ['skipped', 'failed']])
-            remaining_high_risk = results['summary']['high_risk_issues']
-            total_needs_help = needs_help_count + remaining_high_risk
-            subject = f"S3 Scan: {fixed_count} issues fixed, {total_needs_help} needs your help" if total_needs_help > 0 else f"S3 Scan: {fixed_count} issues fixed, All Clean"
+        # Count issues by severity
+        high_count = medium_count = low_count = 0
+        for bucket in results['buckets']:
+            if not bucket.get('skipped', False) and bucket['risks']:
+                for risk in bucket['risks']:
+                    if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled', 'WildcardCORS']:
+                        high_count += 1
+                    elif risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled', 'NoLogging', 'UnencryptedReplication']:
+                        medium_count += 1
+                    elif not risk['type'].endswith('Error'):
+                        low_count += 1
+        
+        # Build dynamic subject line
+        subject_parts = []
+        if high_count > 0:
+            subject_parts.append(f"{high_count} high risk {'issue' if high_count == 1 else 'issues'} found")
+        if medium_count > 0:
+            subject_parts.append(f"{medium_count} medium risk {'issue' if medium_count == 1 else 'issues'} found")
+        if low_count > 0:
+            subject_parts.append(f"{low_count} low risk {'issue' if low_count == 1 else 'issues'} found")
+        
+        if subject_parts:
+            subject = "Scan Results: " + ", ".join(subject_parts)
         else:
-            high_risk_count = results['summary']['high_risk_issues']
-            subject = f"S3 Scan: {high_risk_count} high risk issues found" if high_risk_count > 0 else "S3 Scan: No high risk issues found"
+            clean_messages = [
+                "All clear ✓",
+                "Clean bill of health",
+                "Looking good! 🎉",
+                "All buckets locked down!",
+                "All good ✓",
+                "Zero issues",
+                "Clean scan",
+                "Buckets secured ✓"
+            ]
+            subject = "Scan Results: " + random.choice(clean_messages)
 
-        html_body = build_html_email_body(results, remediate)
+        html_body = build_html_email_body(results, remediate, json_url, pdf_url)
         
         # Build MIME message
         msg = MIMEMultipart('related')
@@ -549,7 +632,7 @@ def send_email_notification(email, results, remediate, ses_client):
     except ClientError as e:
         print(f"Error sending email notification: {e}")
 
-def build_html_email_body(results, remediate):
+def build_html_email_body(results, remediate, json_url, pdf_url):
     """
     Build HTML email body with scan results
     """
@@ -557,6 +640,7 @@ def build_html_email_body(results, remediate):
     region = os.environ.get('AWS_REGION', 'us-east-1')
     total_buckets = results['summary']['total_buckets']
     account_id = results['account_id']
+    scan_duration = results.get('scan_duration', 0)
 
     html = f"""
     <html>
@@ -570,6 +654,23 @@ def build_html_email_body(results, remediate):
             .low {{color: #0088ff;}}
             .none {{color: #008800;}}
             h1, h2 {{color: #333;}}
+            .download-btn {{
+                display: inline-block;
+                padding: 12px 24px;
+                margin: 10px 5px;
+                background-color: #0066cc;
+                color: white;
+                text-decoration: none;
+                border-radius: 4px;
+                font-weight: bold;
+            }}
+            .download-section {{
+                margin: 20px 0;
+                padding: 15px;
+                background-color: #f5f5f5;
+                border-radius: 4px;
+                text-align: center;
+            }}
         </style>
     </head>
     <body>
@@ -578,6 +679,7 @@ def build_html_email_body(results, remediate):
         <p><strong>Timestamp:</strong> {timestamp}</p>
         <p><strong>Region:</strong> {region}</p>
         <p><strong>Total Buckets:</strong> {total_buckets}</p>
+        <p><strong>Scan Duration:</strong> {scan_duration:.2f} seconds</p>
     """
 
     if remediate and 'fixes' in results:
@@ -618,8 +720,8 @@ def build_html_email_body(results, remediate):
             })
         else:
             for risk in bucket['risks']:
-                severity = 'high' if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled'] else \
-                        'medium' if risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled'] else \
+                severity = 'high' if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled', 'WildcardCORS'] else \
+                        'medium' if risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled', 'NoLogging', 'UnencryptedReplication'] else \
                         'error' if risk['type'].endswith('Error') else 'low'
                 risk_explanation, fix_command = get_risk_details(risk['type'], bucket['name'])
                 findings_by_severity[severity].append({
@@ -659,6 +761,17 @@ def build_html_email_body(results, remediate):
                 </tr>
                 """
         html += "</table>"
+
+    # Add download buttons
+    html += f"""
+    <div class="download-section">
+        <h2>Download Full Report</h2>
+        <p>Download the complete scan results in your preferred format:</p>
+        <a href="{json_url}" class="download-btn">📄 Download JSON</a>
+        <a href="{pdf_url}" class="download-btn">📑 Download PDF</a>
+        <p style="font-size: 12px; color: #666; margin-top: 10px;">Links valid for 7 days</p>
+    </div>
+    """
 
     html += "</body></html>"
     return html
@@ -735,9 +848,266 @@ def get_risk_details(risk_type, bucket_name):
         'ListBucketsFailure': (
             'Failed to list buckets',
             'Check IAM permissions for s3:ListAllMyBuckets'
+        ),
+        'NoLogging': (
+            'No access logs enabled; missing audit trail for compliance and security investigations',
+            f'Create dedicated logging bucket, then enable: aws s3api put-bucket-logging --bucket {bucket_name} --bucket-logging-status file://logging-config.json'
+        ),
+        'LoggingError': (
+            'Failed to check logging configuration',
+            'Check IAM permissions or bucket existence'
+        ),
+        'WildcardCORS': (
+            'Wildcard CORS allows any website to access bucket data via browser, enabling potential data exfiltration',
+            f'Review application requirements and replace wildcard with specific domains: aws s3api put-bucket-cors --bucket {bucket_name} --cors-configuration file://cors-config.json'
+        ),
+        'CORSError': (
+            'Failed to check CORS configuration',
+            'Check IAM permissions or bucket existence'
+        ),
+        'MFADeleteDisabled': (
+            'MFA Delete not enabled; versioned objects can be permanently deleted without multi-factor authentication',
+            'Enable with root account credentials: Requires MFA device and cannot be automated. See AWS documentation for manual setup'
+        ),
+        'NoLifecyclePolicy': (
+            'No lifecycle policy configured; may incur unnecessary storage costs for infrequently accessed data',
+            f'Review data retention requirements and configure lifecycle transitions: aws s3api put-bucket-lifecycle-configuration --bucket {bucket_name} --lifecycle-configuration file://lifecycle.json'
+        ),
+        'NoReplication': (
+            'No cross-region replication configured; data not protected against regional failures or disasters',
+            f'If DR required, create destination bucket with versioning, IAM replication role, then configure: aws s3api put-bucket-replication --bucket {bucket_name} --replication-configuration file://replication.json'
+        ),
+        'UnencryptedReplication': (
+            'Replication configured but destination bucket not encrypted; replicated data at risk during transit and at rest',
+            f'Update replication configuration to add encryption: aws s3api put-bucket-replication --bucket {bucket_name} --replication-configuration file://replication-encrypted.json'
         )
     }
     return risk_details.get(risk_type, ('Unknown risk type', 'Manual review required'))
+
+def store_scan_results(results, account_id):
+    """
+    Store scan results as JSON and PDF in S3, return presigned URLs
+    """
+    try:
+        s3_client = boto3.client('s3')
+        bucket_name = os.environ.get('REPORTS_BUCKET', 'wakimworks-s3scanner-reports')
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        
+        # Store JSON
+        json_key = f"reports/{account_id}/{timestamp}-scan-results.json"
+        json_data = json.dumps(results, indent=2, default=str)
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=json_key,
+            Body=json_data,
+            ContentType='application/json'
+        )
+        
+        # Generate and store PDF
+        pdf_key = f"reports/{account_id}/{timestamp}-scan-results.pdf"
+        pdf_data = generate_pdf(results)
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=pdf_key,
+            Body=pdf_data,
+            ContentType='application/pdf'
+        )
+        
+        # Generate presigned URLs (valid for 7 days)
+        json_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket_name, 'Key': json_key},
+            ExpiresIn=604800
+        )
+        
+        pdf_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': bucket_name, 'Key': pdf_key},
+            ExpiresIn=604800
+        )
+        
+        print(f"Scan results stored successfully: JSON={json_key}, PDF={pdf_key}")
+        return json_url, pdf_url
+        
+    except Exception as e:
+        error_msg = f"Error storing scan results: {str(e)}"
+        print(error_msg)
+        # Return empty strings on error to allow email to still be sent
+        return "", ""
+
+def generate_pdf(results):
+    """
+    Generate PDF from scan results using WeasyPrint
+    """
+    try:
+        html_content = build_pdf_html(results)
+        pdf_buffer = BytesIO()
+        HTML(string=html_content).write_pdf(pdf_buffer)
+        pdf_buffer.seek(0)
+        return pdf_buffer.read()
+    except Exception as e:
+        error_msg = f"Error generating PDF: {str(e)}"
+        print(error_msg)
+        raise
+
+def build_pdf_html(results):
+    """
+    Build HTML specifically formatted for PDF generation
+    """
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')
+    account_id = results['account_id']
+    total_buckets = results['summary']['total_buckets']
+    scan_duration = results.get('scan_duration', 0)
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {{
+                size: A4;
+                margin: 2cm;
+            }}
+            body {{
+                font-family: Arial, sans-serif;
+                font-size: 10pt;
+            }}
+            h1 {{
+                color: #333;
+                font-size: 18pt;
+                border-bottom: 2px solid #0066cc;
+                padding-bottom: 10px;
+            }}
+            h2 {{
+                color: #0066cc;
+                font-size: 14pt;
+                margin-top: 20px;
+            }}
+            h3 {{
+                font-size: 12pt;
+                margin-top: 15px;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 10px 0;
+                font-size: 9pt;
+            }}
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 6px;
+                text-align: left;
+            }}
+            th {{
+                background-color: #f2f2f2;
+                font-weight: bold;
+            }}
+            .high {{ color: #ff0000; font-weight: bold; }}
+            .medium {{ color: #ff8800; font-weight: bold; }}
+            .low {{ color: #0088ff; }}
+            .none {{ color: #008800; }}
+            .header-info {{
+                background-color: #f5f5f5;
+                padding: 10px;
+                border-radius: 4px;
+                margin-bottom: 20px;
+            }}
+            code {{
+                background-color: #f5f5f5;
+                padding: 2px 4px;
+                border-radius: 2px;
+                font-size: 8pt;
+                word-wrap: break-word;
+            }}
+        </style>
+    </head>
+    <body>
+        <h1>S3 Security Scanner Report</h1>
+        <div class="header-info">
+            <p><strong>Account ID:</strong> {account_id}</p>
+            <p><strong>Scan Date:</strong> {timestamp}</p>
+            <p><strong>Total Buckets:</strong> {total_buckets}</p>
+            <p><strong>Scan Duration:</strong> {scan_duration:.2f} seconds</p>
+        </div>
+    """
+    
+    # Add remediation section if present
+    if 'fixes' in results:
+        html += """
+        <h2>Remediations Applied</h2>
+        <table>
+            <tr><th>Bucket</th><th>Action</th><th>Status</th><th>Reason</th></tr>
+        """
+        for fix in results['fixes']:
+            status_class = 'high' if fix['status'] == 'failed' else ('medium' if fix['status'] == 'skipped' else 'none')
+            reason = fix.get('reason', 'N/A')
+            html += f"""
+            <tr>
+                <td>{fix['bucket']}</td>
+                <td>{fix['action'].replace('_', ' ').title()}</td>
+                <td class="{status_class}">{fix['status'].title()}</td>
+                <td>{reason}</td>
+            </tr>
+            """
+        html += "</table>"
+    
+    # Add findings by severity
+    findings_by_severity = {'high': [], 'medium': [], 'low': [], 'error': [], 'none': []}
+    for bucket in results['buckets']:
+        if bucket.get('skipped', False):
+            findings_by_severity['none'].append({
+                'bucket': bucket['name'],
+                'issue': 'SkippedBucket',
+                'risk': 'Bucket excluded from scanning',
+                'fix': 'Remove from ExcludeBuckets parameter'
+            })
+        elif not bucket['risks']:
+            findings_by_severity['none'].append({
+                'bucket': bucket['name'],
+                'issue': 'NoIssues',
+                'risk': 'No misconfigurations detected',
+                'fix': 'No action needed'
+            })
+        else:
+            for risk in bucket['risks']:
+                severity = 'high' if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled', 'WildcardCORS'] else \
+                          'medium' if risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled', 'NoLogging', 'UnencryptedReplication'] else \
+                          'error' if risk['type'].endswith('Error') else 'low'
+                risk_explanation, fix_command = get_risk_details(risk['type'], bucket['name'])
+                findings_by_severity[severity].append({
+                    'bucket': bucket['name'],
+                    'issue': risk['type'],
+                    'risk': risk_explanation,
+                    'fix': fix_command
+                })
+    
+    html += "<h2>Security Findings</h2>"
+    for severity in ['high', 'medium', 'low', 'error']:
+        if findings_by_severity[severity]:
+            title = 'Low Risk Issues' if severity == 'low' else f"{severity.title()} Risk Issues"
+            html += f'<h3 class="{severity}">{title}</h3>'
+            html += """
+            <table>
+                <tr><th>Severity</th><th>Bucket</th><th>Issue</th><th>Risk</th><th>Remediation</th></tr>
+            """
+            for finding in findings_by_severity[severity]:
+                html += f"""
+                <tr>
+                    <td class="{severity}">{severity.upper()}</td>
+                    <td>{finding['bucket']}</td>
+                    <td>{finding['issue']}</td>
+                    <td>{finding['risk']}</td>
+                    <td><code>{finding['fix']}</code></td>
+                </tr>
+                """
+            html += "</table>"
+    
+    html += """
+    </body>
+    </html>
+    """
+    return html
 
 def send_cfn_response(event, context, status, data):
     """
