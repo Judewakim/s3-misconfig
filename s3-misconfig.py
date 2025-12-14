@@ -92,6 +92,7 @@ def process_client(client, ses_client):
         # Scan buckets
         bucket_risks = scan_buckets(s3_client, config)
         result['summary']['total_buckets'] = len(bucket_risks)
+        result['scan_duration'] = (datetime.now() - result['scan_start_time']).total_seconds()
         # Count individual high-risk issues
         result['summary']['high_risk_issues'] = sum(
             len([r for r in b['risks'] if r['type'] in [
@@ -582,6 +583,7 @@ def build_html_email_body(results, remediate):
     region = os.environ.get('AWS_REGION', 'us-east-1')
     total_buckets = results['summary']['total_buckets']
     account_id = results['account_id']
+    scan_duration = results.get('scan_duration', 0)
 
     html = f"""
     <html>
@@ -603,6 +605,7 @@ def build_html_email_body(results, remediate):
         <p><strong>Timestamp:</strong> {timestamp}</p>
         <p><strong>Region:</strong> {region}</p>
         <p><strong>Total Buckets:</strong> {total_buckets}</p>
+        <p><strong>Scan Duration:</strong> {scan_duration:.2f} seconds</p>
     """
 
     if remediate and 'fixes' in results:
