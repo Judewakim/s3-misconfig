@@ -509,16 +509,41 @@ def send_email_notification(email, results, remediate, ses_client):
     Send email notification with scan results using SES
     """
     try:
-        if remediate:
-            fixes = results.get('fixes', [])
-            fixed_count = len([f for f in fixes if f['status'] == 'success'])
-            needs_help_count = len([f for f in fixes if f['status'] in ['skipped', 'failed']])
-            remaining_high_risk = results['summary']['high_risk_issues']
-            total_needs_help = needs_help_count + remaining_high_risk
-            subject = f"S3 Scan: {fixed_count} issues fixed, {total_needs_help} needs your help" if total_needs_help > 0 else f"S3 Scan: {fixed_count} issues fixed, All Clean"
+        # Count issues by severity
+        high_count = medium_count = low_count = 0
+        for bucket in results['buckets']:
+            if not bucket.get('skipped', False) and bucket['risks']:
+                for risk in bucket['risks']:
+                    if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled', 'WildcardCORS']:
+                        high_count += 1
+                    elif risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled', 'NoLogging', 'UnencryptedReplication']:
+                        medium_count += 1
+                    elif not risk['type'].endswith('Error'):
+                        low_count += 1
+        
+        # Build dynamic subject line
+        subject_parts = []
+        if high_count > 0:
+            subject_parts.append(f"{high_count} high risk {'issue' if high_count == 1 else 'issues'} found")
+        if medium_count > 0:
+            subject_parts.append(f"{medium_count} medium risk {'issue' if medium_count == 1 else 'issues'} found")
+        if low_count > 0:
+            subject_parts.append(f"{low_count} low risk {'issue' if low_count == 1 else 'issues'} found")
+        
+        if subject_parts:
+            subject = "Scan Results: " + ", ".join(subject_parts)
         else:
-            high_risk_count = results['summary']['high_risk_issues']
-            subject = f"S3 Scan: {high_risk_count} high risk issues found" if high_risk_count > 0 else "S3 Scan: No high risk issues found"
+            clean_messages = [
+                "All clear ✓",
+                "Clean bill of health",
+                "Looking good! 🎉",
+                "All buckets locked down!",
+                "All good ✓",
+                "Zero issues",
+                "Clean scan",
+                "Buckets secured ✓"
+            ]
+            subject = "Scan Results: " + random.choice(clean_messages)
 
         html_body = build_html_email_body(results, remediate)
         
