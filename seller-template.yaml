@@ -232,7 +232,7 @@ Resources:
     Properties:
       FunctionName: S3SecurityScanner
       Handler: s3-misconfig.lambda_handler  # From your py file
-      Runtime: python3.12
+      Runtime: python3.11
       Role: !GetAtt ScannerLambdaRole.Arn
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
