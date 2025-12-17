@@ -5,6 +5,7 @@ import os
 from botocore.exceptions import ClientError
 import base64
 import urllib3
+import random
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -88,6 +89,9 @@ def process_client(client, ses_client):
         config = {'exclude_buckets': exclude_buckets}
         remediate = invocation_mode == 'scanning_and_autoremediation'
         dry_run = not remediate
+
+        # Record scan start time for duration calculation
+        result['scan_start_time'] = datetime.now()
 
         # Scan buckets
         bucket_risks = scan_buckets(s3_client, config)
