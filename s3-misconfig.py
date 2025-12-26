@@ -11,6 +11,146 @@ from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
 from email.utils import formataddr
 
+def _make_assumed_client(service, creds, region_name='us-east-1'):
+    """
+    Create a boto3 client using assumed-role credentials.
+    """
+    return boto3.client(
+        service,
+        aws_access_key_id=creds['AccessKeyId'],
+        aws_secret_access_key=creds['SecretAccessKey'],
+        aws_session_token=creds['SessionToken'],
+        region_name=region_name
+    )
+
+def _extract_s3_data_event_values(event_selectors):
+    """
+    Returns a list of configured CloudTrail S3 object data event resource ARNs (values).
+    """
+    values = []
+    for selector in event_selectors or []:
+        for dr in selector.get('DataResources', []) or []:
+            if dr.get('Type') == 'AWS::S3::Object':
+                values.extend(dr.get('Values', []) or [])
+    return values
+
+def _cloudtrail_value_covers_bucket(value, bucket_name):
+    """
+    CloudTrail data event values typically look like:
+      - arn:aws:s3:::my-bucket/
+      - arn:aws:s3:::my-bucket/prefix/
+    """
+    if not value:
+        return False
+    # Treat "all buckets" values as coverage (rare but possible).
+    if value in ('arn:aws:s3:::', 'arn:aws:s3:::'):
+        return True
+    prefix = 'arn:aws:s3:::'
+    if not value.startswith(prefix):
+        return False
+    remainder = value[len(prefix):]
+    configured_bucket = remainder.split('/', 1)[0]
+    return configured_bucket == bucket_name
+
+def _policy_enforces_tls(policy_json):
+    """
+    Returns True if the bucket policy contains a deny for insecure transport:
+      Condition Bool aws:SecureTransport == false
+    """
+    if not isinstance(policy_json, dict):
+        return False
+    for stmt in policy_json.get('Statement', []) or []:
+        if stmt.get('Effect') != 'Deny':
+            continue
+        condition = stmt.get('Condition') or {}
+        bool_cond = condition.get('Bool') or {}
+        # Some policies use string values.
+        if str(bool_cond.get('aws:SecureTransport')).lower() == 'false':
+            return True
+    return False
+
+def _get_log_group_name_from_arn(log_group_arn):
+    # arn:aws:logs:REGION:ACCOUNT:log-group:GROUPNAME
+    try:
+        parts = log_group_arn.split(':log-group:', 1)
+        if len(parts) != 2:
+            return None
+        return parts[1]
+    except Exception:
+        return None
+
+def build_account_observability_context(creds):
+    """
+    Best-effort account-level checks used to enrich per-bucket findings:
+      - CloudTrail S3 object data event selectors (coverage)
+      - CloudWatch Logs retention for the CloudTrail log group(s) (report-only)
+    """
+    ctx = {
+        'cloudtrail_s3_data_event_values': [],
+        'cloudtrail_trails': [],
+        'cloudwatch_log_retention': [],  # list of {trail, log_group, retention_in_days}
+        'errors': []
+    }
+
+    cloudtrail = _make_assumed_client('cloudtrail', creds, region_name='us-east-1')
+    try:
+        trails_resp = cloudtrail.list_trails()
+        trails = trails_resp.get('Trails', []) or []
+        if trails:
+            trail_arns = [t.get('TrailARN') for t in trails if t.get('TrailARN')]
+            # IncludeShadowTrails helps show multi-region trails.
+            described = cloudtrail.describe_trails(trailNameList=trail_arns, includeShadowTrails=True)
+            for t in described.get('trailList', []) or []:
+                ctx['cloudtrail_trails'].append({
+                    'name': t.get('Name'),
+                    'arn': t.get('TrailARN'),
+                    'home_region': t.get('HomeRegion'),
+                    'cloudwatch_log_group_arn': t.get('CloudWatchLogsLogGroupArn')
+                })
+
+                # S3 object data events coverage
+                try:
+                    selectors = cloudtrail.get_event_selectors(TrailName=t.get('TrailARN') or t.get('Name'))
+                    ctx['cloudtrail_s3_data_event_values'].extend(
+                        _extract_s3_data_event_values(selectors.get('EventSelectors'))
+                    )
+                except ClientError as e:
+                    ctx['errors'].append(f"CloudTrail get_event_selectors failed for trail {t.get('Name')}: {e}")
+
+            # CloudWatch Logs retention (report-only)
+            for t in ctx['cloudtrail_trails']:
+                log_group_arn = t.get('cloudwatch_log_group_arn')
+                if not log_group_arn:
+                    continue
+                log_group_name = _get_log_group_name_from_arn(log_group_arn)
+                if not log_group_name:
+                    continue
+                # Region is in the ARN: arn:aws:logs:REGION:ACCOUNT:log-group:NAME
+                try:
+                    region = log_group_arn.split(':')[3]
+                except Exception:
+                    region = 'us-east-1'
+                logs = _make_assumed_client('logs', creds, region_name=region)
+                try:
+                    lg_resp = logs.describe_log_groups(logGroupNamePrefix=log_group_name)
+                    matched = next((lg for lg in lg_resp.get('logGroups', []) or [] if lg.get('logGroupName') == log_group_name), None)
+                    retention = matched.get('retentionInDays') if matched else None
+                    ctx['cloudwatch_log_retention'].append({
+                        'trail': t.get('name') or t.get('arn') or 'unknown',
+                        'log_group': log_group_name,
+                        'region': region,
+                        'retention_in_days': retention
+                    })
+                except ClientError as e:
+                    ctx['errors'].append(f"CloudWatch describe_log_groups failed for {log_group_name}: {e}")
+        else:
+            # No trails means no data events coverage.
+            ctx['cloudtrail_s3_data_event_values'] = []
+    except ClientError as e:
+        ctx['errors'].append(f"CloudTrail list/describe failed: {e}")
+
+    return ctx
+
 def lambda_handler(event, context):
     # Log the full event for debugging (critical for stuck issues)
     print(f"Received event: {json.dumps(event)}")
@@ -77,13 +217,9 @@ def process_client(client, ses_client):
             RoleSessionName='S3ScannerSession',
             ExternalId=external_id
         )
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=assumed_role['Credentials']['AccessKeyId'],
-            aws_secret_access_key=assumed_role['Credentials']['SecretAccessKey'],
-            aws_session_token=assumed_role['Credentials']['SessionToken'],
-            region_name='us-east-1'
-        )
+        creds = assumed_role['Credentials']
+        s3_client = _make_assumed_client('s3', creds, region_name='us-east-1')
+        account_ctx = build_account_observability_context(creds)
 
         # Configure scan parameters
         config = {'exclude_buckets': exclude_buckets}
@@ -94,22 +230,24 @@ def process_client(client, ses_client):
         result['scan_start_time'] = datetime.now()
 
         # Scan buckets
-        bucket_risks = scan_buckets(s3_client, config)
-        result['summary']['total_buckets'] = len(bucket_risks)
+        bucket_risks = scan_buckets(s3_client, config, creds, account_ctx)
+        actual_buckets = [b for b in bucket_risks if b.get('name') != 'ACCOUNT']
+        result['summary']['total_buckets'] = len(actual_buckets)
         result['scan_duration'] = (datetime.now() - result['scan_start_time']).total_seconds()
         # Count individual high-risk issues
         result['summary']['high_risk_issues'] = sum(
             len([r for r in b['risks'] if r['type'] in [
                 'PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL',
-                'NoEncryption', 'VersioningDisabled'
-            ]]) for b in bucket_risks if not b.get('skipped')
+                'NoEncryption', 'VersioningDisabled', 'WildcardCORS', 'NoLogging',
+                'NoTlsEnforcement', 'CloudTrailDataEventsNotEnabled'
+            ]]) for b in actual_buckets if not b.get('skipped')
         )
-        result['summary']['errors'] = sum(1 for b in bucket_risks if b.get('severity') == 'error')
+        result['summary']['errors'] = sum(1 for b in actual_buckets if b.get('severity') == 'error')
         result['buckets'] = bucket_risks
 
         # Remediate if requested
         if remediate and not dry_run:
-            fixes_applied = remediate_risks(s3_client, bucket_risks, config)
+            fixes_applied = remediate_risks(s3_client, bucket_risks, config, creds)
             result['fixes'] = fixes_applied
 
         # Send email notification
@@ -123,7 +261,7 @@ def process_client(client, ses_client):
         result['error'] = str(e)
         return result
 
-def scan_buckets(s3_client, config):
+def scan_buckets(s3_client, config, creds, account_ctx=None):
     """
     Scan all S3 buckets in an AWS account for misconfigurations.
     """
@@ -146,6 +284,12 @@ def scan_buckets(s3_client, config):
 
     print(f"Found {len(bucket_list)} buckets to scan")
 
+    # Account-level: CloudTrail S3 data event coverage + CloudWatch log retention (report-only)
+    cloudtrail_values = (account_ctx or {}).get('cloudtrail_s3_data_event_values', []) or []
+    cloudtrail_enabled = len(cloudtrail_values) > 0
+    cloudwatch_retention = (account_ctx or {}).get('cloudwatch_log_retention', []) or []
+    account_errors = (account_ctx or {}).get('errors', []) or []
+
     for bucket in bucket_list:
         bucket_name = bucket['Name']
         print(f"Scanning bucket: {bucket_name}")
@@ -157,6 +301,25 @@ def scan_buckets(s3_client, config):
 
         bucket_risks = []
         severity = 'none'
+
+        # Determine bucket region (used for KMS calls)
+        bucket_region = 'us-east-1'
+        try:
+            loc = s3_client.get_bucket_location(Bucket=bucket_name)
+            # For us-east-1 AWS returns None or 'us-east-1' depending on API behavior.
+            bucket_region = loc.get('LocationConstraint') or 'us-east-1'
+        except ClientError:
+            # Best-effort; leave default.
+            pass
+
+        # Account-level: CloudTrail S3 data event coverage mapped per bucket
+        if not cloudtrail_enabled or not any(_cloudtrail_value_covers_bucket(v, bucket_name) for v in cloudtrail_values):
+            details = "No CloudTrail S3 object data event selector found" if not cloudtrail_enabled else "Bucket not covered by CloudTrail S3 object data event selectors"
+            bucket_risks.append({
+                'type': 'CloudTrailDataEventsNotEnabled',
+                'details': details
+            })
+            severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
 
         # Check 1: Public Access Block Configuration
         try:
@@ -282,6 +445,14 @@ def scan_buckets(s3_client, config):
                 })
                 severity = 'low' if severity_rank('low') > severity_rank(severity) else severity
                 print(f"  - No policy issues")
+
+            # TLS enforcement (encryption in transit)
+            if not _policy_enforces_tls(policy_json):
+                bucket_risks.append({
+                    'type': 'NoTlsEnforcement',
+                    'details': 'Bucket policy does not deny insecure (non-TLS) transport (aws:SecureTransport=false)'
+                })
+                severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
         except ClientError as e:
             if e.response['Error']['Code'] == 'NoSuchBucketPolicy':
                 bucket_risks.append({
@@ -290,6 +461,11 @@ def scan_buckets(s3_client, config):
                 })
                 severity = 'low' if severity_rank('low') > severity_rank(severity) else severity
                 print(f"  - No bucket policy")
+                bucket_risks.append({
+                    'type': 'NoTlsEnforcement',
+                    'details': 'No bucket policy present to enforce TLS-only access'
+                })
+                severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
             else:
                 bucket_risks.append({
                     'type': 'PolicyError',
@@ -310,6 +486,61 @@ def scan_buckets(s3_client, config):
                 })
                 severity = 'medium' if severity_rank('medium') > severity_rank(severity) else severity
                 print(f"  - Non-KMS encryption: {sse_types}")
+            else:
+                # KMS key posture (best-effort)
+                kms_key_ids = []
+                for rule in rules:
+                    by_default = rule.get('ApplyServerSideEncryptionByDefault', {}) or {}
+                    if by_default.get('SSEAlgorithm') == 'aws:kms':
+                        # Field name in the S3 API response is KMSMasterKeyID
+                        key_id = by_default.get('KMSMasterKeyID')
+                        if key_id:
+                            kms_key_ids.append(key_id)
+                for key_id in list(dict.fromkeys(kms_key_ids)):  # unique, preserve order
+                    kms = _make_assumed_client('kms', creds, region_name=bucket_region)
+                    try:
+                        rot = kms.get_key_rotation_status(KeyId=key_id)
+                        if not rot.get('KeyRotationEnabled', False):
+                            bucket_risks.append({
+                                'type': 'KmsKeyRotationDisabled',
+                                'details': f"KMS key rotation disabled for key: {key_id}",
+                                'key_id': key_id,
+                                'region': bucket_region
+                            })
+                            severity = 'medium' if severity_rank('medium') > severity_rank(severity) else severity
+                    except ClientError as e:
+                        bucket_risks.append({
+                            'type': 'KmsKeyRotationError',
+                            'details': f"Error checking KMS key rotation for {key_id}: {str(e)}"
+                        })
+                        severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
+
+                    # Conservative key policy heuristic: flag obvious wildcard allow.
+                    try:
+                        policy_text = kms.get_key_policy(KeyId=key_id, PolicyName='default').get('Policy')
+                        policy_doc = json.loads(policy_text) if policy_text else {}
+                        over_permissive = False
+                        for stmt in policy_doc.get('Statement', []) or []:
+                            if stmt.get('Effect') != 'Allow':
+                                continue
+                            principal = stmt.get('Principal')
+                            action = stmt.get('Action')
+                            if principal == '*' or (isinstance(principal, dict) and str(principal.get('AWS')).strip() == '*'):
+                                over_permissive = True
+                            if action == '*' or (isinstance(action, list) and any(a == '*' for a in action)):
+                                over_permissive = True
+                        if over_permissive:
+                            bucket_risks.append({
+                                'type': 'KmsKeyPolicyOverPermissive',
+                                'details': f"KMS key policy may be overly permissive for key: {key_id}"
+                            })
+                            severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
+                    except ClientError as e:
+                        bucket_risks.append({
+                            'type': 'KmsKeyPolicyError',
+                            'details': f"Error checking KMS key policy for {key_id}: {str(e)}"
+                        })
+                        severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
         except ClientError as e:
             if e.response['Error']['Code'] == 'ServerSideEncryptionConfigurationNotFoundError':
                 bucket_risks.append({
@@ -337,6 +568,12 @@ def scan_buckets(s3_client, config):
                 })
                 severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
                 print(f"  - Versioning disabled: {status}")
+            if versioning.get('MFADelete') != 'Enabled':
+                bucket_risks.append({
+                    'type': 'MFADeleteDisabled',
+                    'details': f"MFA Delete status: {versioning.get('MFADelete', 'Disabled')}"
+                })
+                severity = 'medium' if severity_rank('medium') > severity_rank(severity) else severity
         except ClientError as e:
             bucket_risks.append({
                 'type': 'VersioningError',
@@ -373,6 +610,95 @@ def scan_buckets(s3_client, config):
                 severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
                 print(f"  - Error checking object lock: {e}")
 
+        # Check 7: Server Access Logging
+        try:
+            logging_cfg = s3_client.get_bucket_logging(Bucket=bucket_name)
+            if not logging_cfg.get('LoggingEnabled'):
+                bucket_risks.append({
+                    'type': 'NoLogging',
+                    'details': 'S3 server access logging not enabled'
+                })
+                severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
+        except ClientError as e:
+            bucket_risks.append({
+                'type': 'LoggingError',
+                'details': f"Error checking bucket logging: {str(e)}"
+            })
+            severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
+
+        # Check 8: Lifecycle Configuration
+        try:
+            s3_client.get_bucket_lifecycle_configuration(Bucket=bucket_name)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchLifecycleConfiguration':
+                bucket_risks.append({
+                    'type': 'NoLifecyclePolicy',
+                    'details': 'No lifecycle configuration found'
+                })
+                severity = 'low' if severity_rank('low') > severity_rank(severity) else severity
+            else:
+                bucket_risks.append({
+                    'type': 'LifecycleError',
+                    'details': f"Error checking lifecycle configuration: {str(e)}"
+                })
+                severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
+
+        # Check 9: CORS Configuration (wildcards)
+        try:
+            cors_cfg = s3_client.get_bucket_cors(Bucket=bucket_name)
+            rules = cors_cfg.get('CORSRules', []) or []
+            wildcard_origins = []
+            for r in rules:
+                if '*' in (r.get('AllowedOrigins') or []):
+                    wildcard_origins.append(r)
+            if wildcard_origins:
+                bucket_risks.append({
+                    'type': 'WildcardCORS',
+                    'details': f"{len(wildcard_origins)} CORS rule(s) allow wildcard origin (*)"
+                })
+                severity = 'high' if severity_rank('high') > severity_rank(severity) else severity
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchCORSConfiguration':
+                pass
+            else:
+                bucket_risks.append({
+                    'type': 'CORSError',
+                    'details': f"Error checking CORS configuration: {str(e)}"
+                })
+                severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
+
+        # Check 10: Replication Configuration
+        try:
+            repl = s3_client.get_bucket_replication(Bucket=bucket_name)
+            repl_cfg = repl.get('ReplicationConfiguration', {}) or {}
+            rules = repl_cfg.get('Rules', []) or []
+            missing_replica_kms = []
+            for r in rules:
+                dest = (r.get('Destination') or {})
+                enc = (dest.get('EncryptionConfiguration') or {})
+                if not enc.get('ReplicaKmsKeyID'):
+                    missing_replica_kms.append(r.get('ID') or 'rule')
+            if missing_replica_kms:
+                bucket_risks.append({
+                    'type': 'UnencryptedReplication',
+                    'details': f"Replication rule(s) missing ReplicaKmsKeyID: {', '.join(missing_replica_kms)}"
+                })
+                severity = 'medium' if severity_rank('medium') > severity_rank(severity) else severity
+        except ClientError as e:
+            code = e.response.get('Error', {}).get('Code')
+            if code in ('ReplicationConfigurationNotFoundError', 'NoSuchReplicationConfiguration', 'NoSuchReplicationConfigurationError'):
+                bucket_risks.append({
+                    'type': 'NoReplication',
+                    'details': 'No replication configuration found'
+                })
+                severity = 'low' if severity_rank('low') > severity_rank(severity) else severity
+            else:
+                bucket_risks.append({
+                    'type': 'ReplicationError',
+                    'details': f"Error checking replication configuration: {str(e)}"
+                })
+                severity = 'error' if severity_rank('error') > severity_rank(severity) else severity
+
         risks.append({
             'name': bucket_name,
             'risks': bucket_risks,
@@ -381,14 +707,44 @@ def scan_buckets(s3_client, config):
         })
         print(f"  Completed scan for {bucket_name}, severity: {severity}, risks: {len(bucket_risks)}")
 
+    # Add account-level report-only findings as a pseudo bucket entry.
+    if cloudwatch_retention or account_errors:
+        account_risks = []
+        for item in cloudwatch_retention:
+            retention = item.get('retention_in_days')
+            retention_str = f"{retention} days" if retention is not None else "Never expire"
+            account_risks.append({
+                'type': 'CloudWatchLogRetention',
+                'details': f"Trail {item.get('trail')} log group {item.get('log_group')} (region {item.get('region')}): retention {retention_str}"
+            })
+        for err in account_errors:
+            account_risks.append({
+                'type': 'AccountObservabilityError',
+                'details': str(err)
+            })
+        risks.append({
+            'name': 'ACCOUNT',
+            'risks': account_risks,
+            'severity': 'low' if account_risks else 'none',
+            'skipped': False
+        })
+
     print(f"Scan completed. Processed {len(risks)} buckets")
     return risks
 
-def remediate_risks(s3_client, risks, config):
+def remediate_risks(s3_client, risks, config, creds):
     fixes = []
     for bucket in [r for r in risks if r['severity'] in ['high', 'medium'] and not r.get('skipped')]:
         bucket_name = bucket['name']
         print(f"Starting remediation for bucket: {bucket_name}")
+
+        # Determine bucket region (used for KMS calls)
+        bucket_region = 'us-east-1'
+        try:
+            loc = s3_client.get_bucket_location(Bucket=bucket_name)
+            bucket_region = loc.get('LocationConstraint') or 'us-east-1'
+        except Exception:
+            pass
 
         for risk in bucket['risks']:
             risk_type = risk['type']
@@ -506,6 +862,65 @@ def remediate_risks(s3_client, risks, config):
             elif risk_type == 'ObjectLockDisabled':
                 fixes.append({'bucket': bucket_name, 'action': 'enabled_object_lock', 'status': 'skipped', 'reason': 'Object lock can only be enabled at bucket creation'})
                 print(f"Skipped enabling object lock: must be set at creation")
+            elif risk_type == 'NoTlsEnforcement':
+                # Ensure a deny on insecure transport exists in the bucket policy.
+                try:
+                    try:
+                        existing = s3_client.get_bucket_policy(Bucket=bucket_name)
+                        policy_json = json.loads(existing['Policy'])
+                    except ClientError as e:
+                        if e.response.get('Error', {}).get('Code') == 'NoSuchBucketPolicy':
+                            policy_json = {'Version': '2012-10-17', 'Statement': []}
+                        else:
+                            raise
+
+                    statements = policy_json.get('Statement', [])
+                    if isinstance(statements, dict):
+                        statements = [statements]
+                    elif statements is None:
+                        statements = []
+
+                    if _policy_enforces_tls(policy_json):
+                        fixes.append({'bucket': bucket_name, 'action': 'enforced_tls_only', 'status': 'skipped', 'reason': 'TLS-only enforcement already present'})
+                    else:
+                        deny_stmt = {
+                            'Sid': 'DenyInsecureTransport',
+                            'Effect': 'Deny',
+                            'Principal': '*',
+                            'Action': 's3:*',
+                            'Resource': [
+                                f'arn:aws:s3:::{bucket_name}',
+                                f'arn:aws:s3:::{bucket_name}/*'
+                            ],
+                            'Condition': {'Bool': {'aws:SecureTransport': 'false'}}
+                        }
+                        statements.append(deny_stmt)
+                        policy_json['Statement'] = statements
+                        s3_client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(policy_json))
+                        fixes.append({'bucket': bucket_name, 'action': 'enforced_tls_only', 'status': 'success'})
+                        print(f"- Enforced TLS-only access via bucket policy")
+                except ClientError as e:
+                    fixes.append({'bucket': bucket_name, 'action': 'enforced_tls_only', 'status': 'failed', 'reason': str(e)})
+                    print(f"Error enforcing TLS-only for {bucket_name}: {str(e)}")
+            elif risk_type == 'KmsKeyRotationDisabled':
+                key_id = risk.get('key_id')
+                region = risk.get('region') or bucket_region
+                if not key_id:
+                    fixes.append({'bucket': bucket_name, 'action': 'enabled_kms_key_rotation', 'status': 'skipped', 'reason': 'Missing key id for rotation enablement'})
+                    continue
+                kms = _make_assumed_client('kms', creds, region_name=region)
+                try:
+                    kms.enable_key_rotation(KeyId=key_id)
+                    fixes.append({'bucket': bucket_name, 'action': 'enabled_kms_key_rotation', 'status': 'success'})
+                    print(f"- Enabled KMS key rotation for {key_id}")
+                except ClientError as e:
+                    code = e.response.get('Error', {}).get('Code', '')
+                    # Treat common "not supported" cases as skipped to keep remediation noise down.
+                    if code in ('UnsupportedOperationException', 'NotFoundException', 'InvalidArnException', 'InvalidKeyUsageException', 'AccessDeniedException'):
+                        fixes.append({'bucket': bucket_name, 'action': 'enabled_kms_key_rotation', 'status': 'skipped', 'reason': f"{code}: {str(e)}"})
+                    else:
+                        fixes.append({'bucket': bucket_name, 'action': 'enabled_kms_key_rotation', 'status': 'failed', 'reason': str(e)})
+                    print(f"Error enabling KMS key rotation for {key_id}: {str(e)}")
         print(f"Completed remediation for bucket: {bucket_name}")
     return fixes
 
@@ -519,9 +934,16 @@ def send_email_notification(email, results, remediate, ses_client):
         for bucket in results['buckets']:
             if not bucket.get('skipped', False) and bucket['risks']:
                 for risk in bucket['risks']:
-                    if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled', 'WildcardCORS']:
+                    if risk['type'] in [
+                        'PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption',
+                        'VersioningDisabled', 'WildcardCORS', 'NoLogging', 'NoTlsEnforcement',
+                        'CloudTrailDataEventsNotEnabled', 'KmsKeyPolicyOverPermissive'
+                    ]:
                         high_count += 1
-                    elif risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled', 'NoLogging', 'UnencryptedReplication']:
+                    elif risk['type'] in [
+                        'PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled',
+                        'UnencryptedReplication', 'MFADeleteDisabled', 'KmsKeyRotationDisabled'
+                    ]:
                         medium_count += 1
                     elif not risk['type'].endswith('Error'):
                         low_count += 1
@@ -650,10 +1072,20 @@ def build_html_email_body(results, remediate):
             })
         else:
             for risk in bucket['risks']:
-                severity = 'high' if risk['type'] in ['PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption', 'VersioningDisabled'] else \
-                        'medium' if risk['type'] in ['PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled'] else \
+                severity = 'high' if risk['type'] in [
+                            'PublicAccessBlockDisabled', 'NoPublicAccessBlock', 'PublicACL', 'NoEncryption',
+                            'VersioningDisabled', 'WildcardCORS', 'NoLogging', 'NoTlsEnforcement',
+                            'CloudTrailDataEventsNotEnabled', 'KmsKeyPolicyOverPermissive'
+                        ] else \
+                        'medium' if risk['type'] in [
+                            'PermissivePolicy', 'NoPolicy', 'NonKmsEncryption', 'ObjectLockDisabled',
+                            'UnencryptedReplication', 'MFADeleteDisabled', 'KmsKeyRotationDisabled'
+                        ] else \
                         'error' if risk['type'].endswith('Error') else 'low'
                 risk_explanation, fix_command = get_risk_details(risk['type'], bucket['name'])
+                if risk.get('details'):
+                    details_html = str(risk['details']).replace("\n", "<br/>")
+                    risk_explanation = f"{risk_explanation} — {details_html}"
                 findings_by_severity[severity].append({
                     'bucket': bucket['name'],
                     'issue': risk['type'],
@@ -763,6 +1195,78 @@ def get_risk_details(risk_type, bucket_name):
         'ObjectLockError': (
             'Failed to check object lock status',
             'Check IAM permissions or bucket existence'
+        ),
+        'NoLogging': (
+            'S3 server access logging is not enabled, reducing audit/forensic visibility',
+            f'aws s3api put-bucket-logging --bucket {bucket_name} --bucket-logging-status \'{{"LoggingEnabled":{{"TargetBucket":"<log-bucket>","TargetPrefix":"{bucket_name}/"}}}}\''
+        ),
+        'LoggingError': (
+            'Failed to check S3 server access logging',
+            'Check IAM permissions for s3:GetBucketLogging'
+        ),
+        'NoLifecyclePolicy': (
+            'No lifecycle configuration is set; retention/archival/deletion may be unmanaged',
+            f'aws s3api put-bucket-lifecycle-configuration --bucket {bucket_name} --lifecycle-configuration file://lifecycle.json'
+        ),
+        'LifecycleError': (
+            'Failed to check lifecycle configuration',
+            'Check IAM permissions for s3:GetLifecycleConfiguration'
+        ),
+        'WildcardCORS': (
+            'CORS allows wildcard origins, increasing risk of unintended browser-based access',
+            f'aws s3api put-bucket-cors --bucket {bucket_name} --cors-configuration file://cors.json'
+        ),
+        'CORSError': (
+            'Failed to check CORS configuration',
+            'Check IAM permissions for s3:GetBucketCORS'
+        ),
+        'NoReplication': (
+            'Replication is not configured; availability/backup objectives may not be met for critical data',
+            f'aws s3api put-bucket-replication --bucket {bucket_name} --replication-configuration file://replication.json'
+        ),
+        'UnencryptedReplication': (
+            'Replication is configured without replica SSE-KMS settings, which may not meet encryption requirements',
+            f'aws s3api put-bucket-replication --bucket {bucket_name} --replication-configuration file://replication-with-replica-kms.json'
+        ),
+        'ReplicationError': (
+            'Failed to check replication configuration',
+            'Check IAM permissions for s3:GetReplicationConfiguration'
+        ),
+        'MFADeleteDisabled': (
+            'MFA Delete is not enabled; privileged deletion of versions is easier (ransomware/data loss risk)',
+            f'aws s3api put-bucket-versioning --bucket {bucket_name} --versioning-configuration Status=Enabled,MFADelete=Enabled --mfa "arn:aws:iam::<account>:mfa/<device> <token>"'
+        ),
+        'NoTlsEnforcement': (
+            'Bucket policy does not enforce TLS-only access; clients may be able to use unencrypted transport',
+            f'aws s3api put-bucket-policy --bucket {bucket_name} --policy file://tls-only-bucket-policy.json'
+        ),
+        'CloudTrailDataEventsNotEnabled': (
+            'CloudTrail S3 object data events are not enabled (or not covering this bucket), reducing audit visibility',
+            'aws cloudtrail put-event-selectors --trail-name <trail> --event-selectors file://s3-data-events.json'
+        ),
+        'CloudWatchLogRetention': (
+            'CloudWatch Logs retention is informational (report-only)',
+            'aws logs put-retention-policy --log-group-name "<log-group>" --retention-in-days <days>'
+        ),
+        'AccountObservabilityError': (
+            'Account-level observability checks encountered an error',
+            'Review CloudTrail/CloudWatch Logs permissions and configuration'
+        ),
+        'KmsKeyRotationDisabled': (
+            'KMS key rotation is disabled for a key used by default encryption',
+            'aws kms enable-key-rotation --key-id <key-id>'
+        ),
+        'KmsKeyRotationError': (
+            'Failed to check KMS key rotation status',
+            'Check IAM permissions for kms:GetKeyRotationStatus'
+        ),
+        'KmsKeyPolicyOverPermissive': (
+            'KMS key policy appears overly permissive (heuristic), which can allow unintended key usage',
+            'aws kms get-key-policy --key-id <key-id> --policy-name default # Review, then update with aws kms put-key-policy'
+        ),
+        'KmsKeyPolicyError': (
+            'Failed to check KMS key policy',
+            'Check IAM permissions for kms:GetKeyPolicy'
         ),
         'ListBucketsFailure': (
             'Failed to list buckets',

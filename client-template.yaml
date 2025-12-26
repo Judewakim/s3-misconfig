@@ -90,47 +90,96 @@ Resources:
               StringEquals:
                 sts:ExternalId: !GetAtt ExternalIdCustomResource.ExternalId  # Use generated ExternalId
       Policies:
-        # - PolicyName: S3ScanAndRemediatePolicy
-        #   PolicyDocument:
-        #     Version: '2012-10-17'
-        #     Statement:
-        #       - Effect: Allow
-        #         Action:
-        #           - s3:ListAllMyBuckets
-        #           - s3:GetBucketAcl
-        #           - s3:GetBucketPolicy
-        #           - s3:GetPublicAccessBlock
-        #           - s3:GetBucketEncryption
-        #           - s3:GetBucketVersioning  # Future-proof
-        #           - s3:GetObjectLockConfiguration  # Future-proof
-        #           - s3:GetBucketLogging  # Future-proof
-        #           - s3:GetReplicationConfiguration  # Future-proof
-        #           - s3:GetBucketPolicyStatus  # Enhanced
-        #         Resource: '*'
-        #       - Effect: Allow
-        #         Action:
-        #           - s3:PutPublicAccessBlock
-        #           - s3:PutBucketAcl
-        #           - s3:PutBucketPolicy
-        #           - s3:PutBucketEncryption
-        #           - s3:PutBucketVersioning  # Future-proof
-        #           - s3:PutObjectLockConfiguration  # Future-proof
-        #           - s3:PutBucketLogging  # Future-proof
-        #           - s3:PutReplicationConfiguration  # Future-proof
-        #         Resource: '*'
-        #         Condition:
-        #           Bool:
-        #             aws:SecureTransport: 'true'  # Enforce HTTPS
-        - PolicyName: TestPolicy
+        - PolicyName: S3ScannerScanPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
+              # Bucket inventory
               - Effect: Allow
-                Action: '*'
+                Action:
+                  - s3:ListAllMyBuckets
                 Resource: '*'
                 Condition:
                   Bool:
-                    aws:SecureTransport: 'true'  # Enforce HTTPS
+                    aws:SecureTransport: 'true'
+              # S3 bucket configuration checks
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketObjectLockConfiguration
+                  - s3:GetBucketLogging
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetBucketCORS
+                  - s3:GetReplicationConfiguration
+                Resource:
+                  - arn:aws:s3:::*
+                Condition:
+                  Bool:
+                    aws:SecureTransport: 'true'
+              # CloudTrail / CloudWatch Logs (account-level observability checks)
+              - Effect: Allow
+                Action:
+                  - cloudtrail:ListTrails
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetEventSelectors
+                  - logs:DescribeLogGroups
+                Resource: '*'
+                Condition:
+                  Bool:
+                    aws:SecureTransport: 'true'
+              # KMS key posture checks (only used when bucket encryption is SSE-KMS)
+              - Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyRotationStatus
+                  - kms:GetKeyPolicy
+                Resource: '*'
+                Condition:
+                  Bool:
+                    aws:SecureTransport: 'true'
+
+        - !If
+          - IsAutoRemediation
+          - PolicyName: S3ScannerRemediationPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - kms:EnableKeyRotation
+                  Resource: '*'
+                  Condition:
+                    Bool:
+                      aws:SecureTransport: 'true'
+                - Effect: Allow
+                  Action:
+                    - s3:PutBucketPublicAccessBlock
+                    - s3:PutBucketAcl
+                    - s3:PutBucketPolicy
+                    - s3:PutEncryptionConfiguration
+                    - s3:PutBucketVersioning
+                  Resource:
+                    - arn:aws:s3:::*
+                  Condition:
+                    Bool:
+                      aws:SecureTransport: 'true'
+                # Needed for safe public ACL remediation guard (list objects + check object ACLs)
+                - Effect: Allow
+                  Action:
+                    - s3:ListBucket
+                    - s3:GetObjectAcl
+                  Resource:
+                    - arn:aws:s3:::*
+                    - arn:aws:s3:::*/*
+                  Condition:
+                    Bool:
+                      aws:SecureTransport: 'true'
+          - !Ref AWS::NoValue
 
   # IAM Role for Registration Lambda
   RegistrationLambdaRole:

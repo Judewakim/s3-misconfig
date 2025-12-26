@@ -51,13 +51,33 @@ Resources:
                   - s3:ListAllMyBuckets
                   - s3:GetBucketAcl
                   - s3:GetBucketPolicy
+                  - s3:GetBucketLocation
                   - s3:GetBucketPublicAccessBlock
                   - s3:GetEncryptionConfiguration
-                  - s3:GetBucketEncryption
-                  - s3:PutPublicAccessBlock
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketObjectLockConfiguration
+                  - s3:GetBucketLogging
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetBucketCORS
+                  - s3:GetReplicationConfiguration
+                  - s3:ListBucket
+                  - s3:GetObjectAcl
+                  - s3:PutBucketPublicAccessBlock
                   - s3:PutBucketAcl
                   - s3:PutBucketPolicy
-                  - s3:PutBucketEncryption
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutBucketVersioning
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cloudtrail:ListTrails
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetEventSelectors
+                  - logs:DescribeLogGroups
+                  - kms:DescribeKey
+                  - kms:GetKeyRotationStatus
+                  - kms:GetKeyPolicy
+                  - kms:EnableKeyRotation
                 Resource: '*'
               - Effect: Allow
                 Action: 
@@ -73,7 +93,7 @@ Resources:
     Properties:
       FunctionName: S3SecurityScanner
       Handler: s3-misconfig.lambda_handler
-      Runtime: python3.8
+      Runtime: python3.11
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: judewakim-s3-misconfig  # Replace with your S3 bucket
