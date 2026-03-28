@@ -1,0 +1,242 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  S3 Sentry Provider Infrastructure — deploys all provider-account resources:
+  ECR repository, IAM execution role, SNS alert topic, Lambda function, and
+  the EventBridge scheduled rule. Deploy this stack once in the provider account
+  before pushing the container image.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+
+  # LambdaImageUri:
+  #   Type: String
+  #   Description: >
+  #     ECR image URI for the S3 Sentry orchestrator container.
+  #     Format: <account>.dkr.ecr.<region>.amazonaws.com/s3sentry-orchestrator:latest
+  #     Leave as placeholder on first deploy; update after the initial ECR push.
+  #   Default: "PLACEHOLDER — push image to ECR and update-function-code"
+
+  DynamoDBTableName:
+    Type: String
+    Default: "S3Sentry"
+    Description: "Name of the existing S3 Sentry DynamoDB single table."
+
+  # ScanSchedule:
+  #   Type: String
+  #   Default: "cron(0 2 * * ? *)"
+  #   Description: "EventBridge schedule expression. Default: daily at 02:00 UTC."
+
+  # LambdaMemoryMB:
+  #   Type: Number
+  #   Default: 1024
+  #   Description: "Lambda memory allocation in MB. Prowler loads large provider objects; 1024 minimum recommended."
+
+  # LambdaTimeoutSeconds:
+  #   Type: Number
+  #   Default: 900
+  #   Description: "Lambda timeout in seconds. 900 = Lambda maximum (15 min)."
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  # -------------------------------------------------------------------------
+  # 1. ECR Repository
+  # -------------------------------------------------------------------------
+  OrchestratorECRRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: s3sentry-orchestrator
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 5 images to control ECR storage costs",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 5
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+
+  # -------------------------------------------------------------------------
+  # 2. SNS Topic — scan-complete alerts
+  # -------------------------------------------------------------------------
+  ScanAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: S3SentryScanAlerts
+      DisplayName: "S3 Sentry Scan Alerts"
+
+  # -------------------------------------------------------------------------
+  # 3. IAM Execution Role — S3SentryOrchestratorRole
+  #    Trust: Lambda service only.
+  #    Principle of least privilege: scoped to S3Sentry table, cross-account
+  #    role names, and the SNS topic created in this stack.
+  # -------------------------------------------------------------------------
+  OrchestratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SentryOrchestratorRole
+      Description: "Execution role for the S3 Sentry Lambda orchestrator."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+
+      Policies:
+        # --- CloudWatch Logs (standard Lambda logging) ---
+        - PolicyName: S3SentryLambdaLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/S3SentryOrchestrator:*"
+
+        # --- DynamoDB — tenant discovery and findings persistence ---
+        - PolicyName: S3SentryDynamoDB
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: TableAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTableName}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTableName}/index/*"
+
+        # --- STS — assume the cross-account role in each client account ---
+        - PolicyName: S3SentryCrossAccountAssume
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AssumeClientRole
+                Effect: Allow
+                Action: sts:AssumeRole
+                # Scoped to only the specific role name deployed by client_onboarding.yaml.
+                Resource: "arn:aws:iam::*:role/S3SentryCrossAccountRole"
+
+        # --- SNS — publish scan-complete summaries ---
+        - PolicyName: S3SentrySNSPublish
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: PublishScanAlerts
+                Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref ScanAlertsTopic
+
+        # --- ECR — pull the container image on cold start ---
+        - PolicyName: S3SentryECRPull
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ECRAuth
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: ECRImagePull
+                Effect: Allow
+                Action:
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                Resource: !GetAtt OrchestratorECRRepo.Arn
+
+  # -------------------------------------------------------------------------
+  # 4. Lambda Function
+  # -------------------------------------------------------------------------
+  # OrchestratorFunction:
+  #   Type: AWS::Lambda::Function
+  #   DependsOn: OrchestratorRole
+  #   Properties:
+  #     FunctionName: S3SentryOrchestrator
+  #     Description: "Scans all S3 Sentry tenants on a schedule using Prowler."
+  #     PackageType: Image
+  #     Code:
+  #       ImageUri: !Ref LambdaImageUri
+  #     Role: !GetAtt OrchestratorRole.Arn
+  #     Timeout: !Ref LambdaTimeoutSeconds
+  #     MemorySize: !Ref LambdaMemoryMB
+  #     Environment:
+  #       Variables:
+  #         DYNAMODB_TABLE: !Ref DynamoDBTableName
+  #         SNS_TOPIC_ARN:  !Ref ScanAlertsTopic
+  #     # Ephemeral storage default is 512MB; Prowler JSON output per scan < 1MB.
+  #     EphemeralStorage:
+  #       Size: 512
+
+  # # -------------------------------------------------------------------------
+  # # 5. EventBridge Scheduled Rule — daily trigger
+  # # -------------------------------------------------------------------------
+  # ScanScheduleRule:
+  #   Type: AWS::Events::Rule
+  #   Properties:
+  #     Name: S3SentryDailyScan
+  #     Description: "Triggers the S3 Sentry orchestrator on the configured schedule."
+  #     ScheduleExpression: !Ref ScanSchedule
+  #     State: ENABLED
+  #     Targets:
+  #       - Id: S3SentryOrchestratorTarget
+  #         Arn: !GetAtt OrchestratorFunction.Arn
+  #         Input: "{}"
+
+  # # Permission for EventBridge to invoke the Lambda function.
+  # ScanSchedulePermission:
+  #   Type: AWS::Lambda::Permission
+  #   Properties:
+  #     FunctionName: !GetAtt OrchestratorFunction.Arn
+  #     Action: lambda:InvokeFunction
+  #     Principal: events.amazonaws.com
+  #     SourceArn: !GetAtt ScanScheduleRule.Arn
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+Outputs:
+
+  ECRRepositoryUri:
+    Description: "Push your container image to this URI, then update the Lambda function."
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3sentry-orchestrator"
+
+  # OrchestratorRoleArn:
+  #   Description: >
+  #     ARN of S3SentryOrchestratorRole. Use this to tighten the trust policy
+  #     Principal in client_onboarding.yaml once this stack is deployed.
+  #   Value: !GetAtt OrchestratorRole.Arn
+
+  SNSTopicArn:
+    Description: "Subscribe an email address to this topic to receive scan alerts."
+    Value: !Ref ScanAlertsTopic
+
+  # LambdaFunctionName:
+  #   Description: "Lambda function name for use with update-function-code after each image push."
+  #   Value: !Ref OrchestratorFunction
+
+  DeployInstructions:
+    Description: "Run these commands after stack creation to push the image and activate the function."
+    Value: !Sub |
+      1. aws ecr get-login-password --region ${AWS::Region} | docker login --username AWS --password-stdin ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+      2. docker build --platform linux/amd64 -t s3sentry-orchestrator .
+      3. docker tag s3sentry-orchestrator:latest ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3sentry-orchestrator:latest
+      4. docker push ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3sentry-orchestrator:latest
+      5. aws lambda update-function-code --function-name S3SentryOrchestrator --image-uri ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3sentry-orchestrator:latest
