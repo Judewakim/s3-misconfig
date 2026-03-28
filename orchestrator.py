@@ -1,6 +1,34 @@
 import atexit
 atexit.register(lambda: input("\nScan cycle finished. Press Enter to close..."))
 
+# ---------------------------------------------------------------------------
+# Python version guard — Prowler 3.x requires Python 3.9–3.11.
+# ---------------------------------------------------------------------------
+import sys
+if sys.version_info >= (3, 12):
+    print(
+        f"ERROR: This script requires Python 3.9–3.11.\n"
+        f"       Currently running: Python {sys.version}\n"
+        f"       Interpreter:       {sys.executable}\n\n"
+        f"  Fix: run via run_orchestrator.bat, which activates the .venv\n"
+        f"       created with 'py -3.11 -m venv .venv'."
+    )
+    sys.exit(1)
+
+# ---------------------------------------------------------------------------
+# Pydantic v1 compatibility shim — must run before any Prowler import.
+# Prowler 3.x uses Pydantic v1 APIs (class Config, validators, etc.) which
+# are broken under Pydantic v2. If v2 is installed, redirect sys.modules so
+# every subsequent `import pydantic` (including inside Prowler) resolves to
+# the bundled v1 compatibility layer instead of the v2 API.
+# ---------------------------------------------------------------------------
+import sys
+import pydantic
+print(f"DEBUG: Using Pydantic version {pydantic.VERSION}")
+if pydantic.VERSION.startswith("2"):
+    from pydantic import v1 as pydantic_v1
+    sys.modules["pydantic"] = pydantic_v1
+
 import os
 from datetime import datetime, timezone
 
