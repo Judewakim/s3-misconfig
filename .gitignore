@@ -226,3 +226,6 @@ aws/
 # Dashboard temp files
 dashboard/*_configured.html
 dashboard/*.bak
+
+#misc
+quickNotes.txt
