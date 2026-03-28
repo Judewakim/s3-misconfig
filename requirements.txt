@@ -1,0 +1,6 @@
+# Orchestrator dependencies
+# Prowler 3.x requires Pydantic v1. Pydantic v2 introduced breaking changes
+# (ConfigError on model_config) that make Prowler 3.x fail at import time.
+prowler>=3.0,<4.0
+pydantic>=1.0,<2.0.0
+boto3

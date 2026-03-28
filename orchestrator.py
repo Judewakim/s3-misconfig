@@ -1,3 +1,6 @@
+import atexit
+atexit.register(lambda: input("\nScan cycle finished. Press Enter to close..."))
+
 import os
 from datetime import datetime, timezone
 
@@ -52,7 +55,8 @@ def get_all_active_tenants():
     Items missing RoleArn, ExternalId, or a resolvable AccountId are
     logged and skipped.
     """
-    table = boto3.resource("dynamodb").Table(DYNAMODB_TABLE)
+    session = boto3.Session()
+    table = session.resource("dynamodb").Table(DYNAMODB_TABLE)
     tenants = []
     kwargs = {
         "IndexName": "SK-index",
@@ -225,32 +229,55 @@ def run_s3_scan(assumed_session):
 
 
 if __name__ == "__main__":
-    tenants = get_all_active_tenants()
-    if not tenants:
-        print("No active tenants found. Exiting.")
-        raise SystemExit(0)
+    try:
+        tenants = get_all_active_tenants()
+        if not tenants:
+            print("No active tenants found. Exiting.")
+            raise SystemExit(0)
 
-    for tenant in tenants:
-        account_id = tenant["AccountId"]
+        for tenant in tenants:
+            account_id = tenant["AccountId"]
+            role_arn   = tenant["RoleArn"]
 
-        try:
-            print(f"[{account_id}] Assuming role {tenant['RoleArn']}...")
-            session = assume_client_role(tenant["RoleArn"], tenant["ExternalId"])
-        except botocore.exceptions.ClientError as e:
-            print(
-                f"[{account_id}] Role assumption failed — "
-                f"{e.response['Error']['Code']}: {e.response['Error']['Message']}. "
-                f"Skipping tenant."
-            )
-            continue
-        except Exception as e:
-            print(f"[{account_id}] Unexpected error during role assumption: {e}. Skipping tenant.")
-            continue
+            # Skip placeholder tenants inserted by seed_test_data.py.
+            if "123456789012" in role_arn:
+                print(f"[INFO] Skipping dummy tenant scan as this is a placeholder.")
+                continue
 
-        try:
-            print(f"[{account_id}] Starting scan...")
-            run_s3_scan(session)
-            print(f"[{account_id}] Scan complete.")
-        except Exception as e:
-            print(f"[{account_id}] Scan failed unexpectedly: {e}. Continuing to next tenant.")
-            continue
+            try:
+                print(f"[{account_id}] Assuming role {role_arn}...")
+                assumed_session = assume_client_role(role_arn, tenant["ExternalId"])
+            except botocore.exceptions.NoCredentialsError:
+                print(
+                    f"[{account_id}] Role assumption failed — NoCredentialsError: "
+                    f"No AWS credentials found in the environment. "
+                    f"Run 'aws configure' or set AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY. "
+                    f"Skipping tenant."
+                )
+                continue
+            except botocore.exceptions.ClientError as e:
+                print(
+                    f"[{account_id}] Role assumption failed — "
+                    f"{e.response['Error']['Code']}: {e.response['Error']['Message']}. "
+                    f"Skipping tenant."
+                )
+                continue
+            except Exception as e:
+                print(f"[{account_id}] Unexpected error during role assumption: {e}. Skipping tenant.")
+                continue
+
+            try:
+                print(f"[{account_id}] Starting scan...")
+                run_s3_scan(assumed_session)
+                print(f"[{account_id}] Scan complete.")
+            except Exception as e:
+                print(f"[{account_id}] Scan failed unexpectedly: {e}. Continuing to next tenant.")
+                continue
+
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        print("\n--- UNHANDLED ERROR ---")
+        traceback.print_exc()
+        print("-----------------------")
