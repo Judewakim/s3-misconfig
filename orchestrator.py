@@ -16,29 +16,35 @@ if sys.version_info >= (3, 12):
     sys.exit(1)
 
 # ---------------------------------------------------------------------------
-# Pydantic v1 compatibility shim — must run before any Prowler import.
-# Prowler 3.x uses Pydantic v1 APIs (class Config, validators, etc.) which
-# are broken under Pydantic v2. If v2 is installed, redirect sys.modules so
-# every subsequent `import pydantic` (including inside Prowler) resolves to
-# the bundled v1 compatibility layer instead of the v2 API.
+# Prowler version (informational only — no Python API import needed).
 # ---------------------------------------------------------------------------
-import sys
-import pydantic
-print(f"DEBUG: Using Pydantic version {pydantic.VERSION}")
-if pydantic.VERSION.startswith("2"):
-    from pydantic import v1 as pydantic_v1
-    sys.modules["pydantic"] = pydantic_v1
+try:
+    from importlib.metadata import version as _pkg_version
+    print(f"Prowler Version: {_pkg_version('prowler')}")
+except Exception:
+    print("Prowler Version: unknown")
 
+import glob
+import json
 import os
+import pathlib
+import shutil
+import subprocess
+import tempfile
 from datetime import datetime, timezone
 
 import boto3
 import botocore.exceptions
 from boto3.dynamodb.conditions import Key
-from prowler.providers.aws.lib.audit_info.audit_info import current_audit_info
-from prowler.providers.aws.lib.audit_info.models import AWS_Audit_Info
-from prowler.lib.check.check import execute as prowler_execute
-from prowler.lib.check.check import import_check
+
+# Prowler executable lives in the same Scripts/ directory as this Python interpreter.
+_PROWLER_EXE = pathlib.Path(sys.executable).parent / (
+    "prowler.exe" if sys.platform == "win32" else "prowler"
+)
+if not _PROWLER_EXE.exists():
+    # Some installs create a plain 'prowler' script even on Windows
+    _PROWLER_EXE = pathlib.Path(sys.executable).parent / "prowler"
+print(f"Prowler executable : {_PROWLER_EXE}")
 
 # ---------------------------------------------------------------------------
 # S3 checks to run and their NIST CSF v1.1 control mappings
@@ -150,30 +156,32 @@ def assume_client_role(role_arn, external_id):
 
 def _enrich_finding(finding, account_id):
     """
-    Convert a Prowler Check_Report_AWS to a plain dict aligned with the
-    blueprint's single-table key schema:
+    Convert a Prowler CLI JSON finding (dict) to the blueprint's
+    single-table key schema:
       PK = ACC#<AccountID>
       SK = SCAN#<CheckID>#<ResourceID>
 
     Tags every finding with AccountID for multi-tenant isolation.
     Adds ComplianceMapping (NIST CSF v1.1) on FAIL findings only.
     """
-    check_id = finding.check_metadata.checkID
+    check_id    = finding.get("CheckID", "")
+    resource_id = finding.get("ResourceId", "")
+    status      = finding.get("Status", "")
     item = {
         "PK":             f"ACC#{account_id}",
-        "SK":             f"SCAN#{check_id}#{finding.resource_id}",
+        "SK":             f"SCAN#{check_id}#{resource_id}",
         "AccountID":      account_id,
         "CheckID":        check_id,
-        "CheckTitle":     finding.check_metadata.checkTitle,
-        "Status":         finding.status,
-        "StatusExtended": finding.status_extended,
-        "ResourceID":     finding.resource_id,
-        "ResourceARN":    getattr(finding, "resource_arn", None),
-        "Region":         getattr(finding, "region", None),
-        "Severity":       finding.check_metadata.severity,
+        "CheckTitle":     finding.get("CheckTitle", ""),
+        "Status":         status,
+        "StatusExtended": finding.get("StatusExtended", ""),
+        "ResourceID":     resource_id,
+        "ResourceARN":    finding.get("ResourceArn"),
+        "Region":         finding.get("Region"),
+        "Severity":       finding.get("Severity", ""),
         "ScannedAt":      datetime.now(timezone.utc).isoformat(),
     }
-    if finding.status == "FAIL":
+    if status == "FAIL":
         item["ComplianceMapping"] = {
             "NIST-CSF-1.1": NIST_CSF_MAPPING.get(check_id, [])
         }
@@ -196,64 +204,89 @@ def save_to_dynamodb(findings):
 
 def run_s3_scan(assumed_session):
     """
-    Run Prowler S3 checks using the cross-account session.
-    Prowler is initialised with the assumed session so no additional
-    role assumption occurs. Each check runs independently; an Access
-    Denied or other error on a single check is logged and skipped so
-    the rest of the account scan continues.
+    Run Prowler S3 checks via the CLI subprocess using the temporary credentials
+    from the cross-account AssumeRole call.
 
-    Note: current_audit_info is a contextvars.ContextVar — safe for
-    sequential multi-account loops. Use copy_context() if parallelising.
+    Strategy:
+    - Inject assumed-role credentials as env vars so Prowler authenticates as
+      the tenant's cross-account role — no AWS_Audit_Info constructor needed.
+    - Write JSON output to a temp directory, parse it, enrich, and store to DynamoDB.
+    - Temp directory is always cleaned up, even on error.
+
+    Prowler exit codes:
+      0 = all checks passed
+      3 = one or more FAIL findings (normal operation — not an error)
+      other = unexpected failure
     """
     sts = assumed_session.client("sts")
-    identity = sts.get_caller_identity()
-    account_id = identity["Account"]
-    partition = identity["Arn"].split(":")[1]
+    account_id = sts.get_caller_identity()["Account"]
 
-    audit_info = AWS_Audit_Info(
-        session_config=None,
-        original_session=assumed_session,
-        audit_session=assumed_session,
-        audited_account=account_id,
-        audited_account_arn=f"arn:{partition}:iam::{account_id}:root",
-        audited_partition=partition,
-        audited_identity_arn=identity["Arn"],
-        audited_user_id=identity["UserId"],
-        audited_regions=None,
-        organizations_metadata=None,
-        audit_resources=[],
-    )
-    current_audit_info.set(audit_info)
+    frozen = assumed_session.get_credentials().get_frozen_credentials()
 
-    enriched = []
-    for check_name in S3_CHECKS:
-        module_path = (
-            f"prowler.providers.aws.services.s3.{check_name}.{check_name}"
-        )
-        try:
-            check_module = import_check(module_path)
-        except Exception as e:
-            print(f"[{account_id}] Could not import check '{check_name}': {e}")
-            continue
+    # Pass assumed-role credentials to Prowler via environment variables.
+    env = os.environ.copy()
+    env["AWS_ACCESS_KEY_ID"]     = frozen.access_key
+    env["AWS_SECRET_ACCESS_KEY"] = frozen.secret_key
+    env["AWS_SESSION_TOKEN"]     = frozen.token
+    # Remove any profile that might override the explicit credentials.
+    env.pop("AWS_PROFILE", None)
+    env.pop("AWS_DEFAULT_PROFILE", None)
 
-        try:
-            check_instance = check_module()
-            raw_findings = prowler_execute(check_instance, audit_info)
-        except botocore.exceptions.ClientError as e:
-            code = e.response["Error"]["Code"]
-            print(
-                f"[{account_id}] Check '{check_name}' skipped — "
-                f"AWS error {code}: {e.response['Error']['Message']}"
-            )
-            continue
-        except Exception as e:
-            print(f"[{account_id}] Check '{check_name}' failed unexpectedly: {e}")
-            continue
+    output_dir = tempfile.mkdtemp(prefix="s3sentry-")
+    try:
+        cmd = [
+            str(_PROWLER_EXE),
+            "aws",
+            "--checks", *S3_CHECKS,
+            "--no-banner",
+            "--quiet",
+            "--output-modes", "json",
+            "--output-directory", output_dir,
+        ]
+        env["PYTHONUNBUFFERED"]  = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
 
-        for finding in raw_findings:
-            enriched.append(_enrich_finding(finding, account_id))
+        print(f"[{account_id}] Running Prowler CLI for {len(S3_CHECKS)} checks...")
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
-    save_to_dynamodb(enriched)
+        json_files = glob.glob(os.path.join(output_dir, "*.json"))
+
+        # Exit codes: 0 = all pass, 3 = FAIL findings present, 1 = Prowler internal
+        # warning (e.g. progress bar encoding issue on Windows). Treat any of these
+        # as recoverable as long as Prowler produced a JSON output file.
+        fatal = result.returncode not in (0, 1, 3) or not json_files
+        if result.returncode not in (0, 3):
+            print(f"[{account_id}] Prowler exited with code {result.returncode} — checking for output...")
+        if fatal:
+            print(f"[{account_id}] Prowler failed fatally (code {result.returncode}, no JSON output).")
+            if result.stdout.strip():
+                print(f"[{account_id}] STDOUT:\n{result.stdout[-2000:]}")
+            if result.stderr.strip():
+                print(f"[{account_id}] STDERR:\n{result.stderr[-2000:]}")
+            return
+        if not json_files:
+            print(f"[{account_id}] No JSON output file produced.")
+            if result.stderr.strip():
+                print(f"[{account_id}] STDERR:\n{result.stderr[-2000:]}")
+            return
+
+        json_path = json_files[0]
+        if os.path.getsize(json_path) == 0:
+            print(f"[{account_id}] JSON output file is empty — no findings to store.")
+            return
+
+        with open(json_path, encoding="utf-8") as fh:
+            raw_findings = json.load(fh)
+
+        print(f"[{account_id}] Prowler returned {len(raw_findings)} finding(s).")
+        if not raw_findings:
+            print(f"[{account_id}] No findings (account may have no S3 buckets). Nothing to store.")
+            return
+        enriched = [_enrich_finding(f, account_id) for f in raw_findings]
+        save_to_dynamodb(enriched)
+
+    finally:
+        shutil.rmtree(output_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

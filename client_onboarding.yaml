@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  S3 Sentry Client Onboarding — deploys a single cross-account IAM role that
+  grants S3 Sentry read (audit) and limited write (remediation) access to S3.
+  No Lambda, no EC2, no SQS. Zero logic in the client account.
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+Parameters:
+  ProviderAccountId:
+    Type: String
+    Default: "390488375643"
+    Description: "S3 Sentry provider AWS account ID. Do not change this value."
+
+  ExternalId:
+    Type: String
+    Description: "Unique security token provided by S3 Sentry during registration. Do not share."
+    MinLength: 8
+    NoEcho: true
+
+# ---------------------------------------------------------------------------
+# Resources
+# ---------------------------------------------------------------------------
+Resources:
+
+  S3SentryCrossAccountRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SentryCrossAccountRole
+      Description: "Grants S3 Sentry read and remediation access to S3 in this account."
+
+      # ----- Trust Policy -----
+      # Only authenticated principals in the S3 Sentry provider account may
+      # assume this role, and only when presenting the correct ExternalId.
+      # This prevents the Confused Deputy attack: even if an attacker tricks
+      # our orchestrator, they cannot assume this role without the unique token.
+      #
+      # TODO: Tighten this Principal to the specific S3SentryOrchestratorRole
+      #       once Phase 3 is deployed (arn:aws:iam::${ProviderAccountId}:role/S3SentryOrchestratorRole).
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowS3SentryOrchestrator
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${ProviderAccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+
+      Policies:
+        # ----- Policy 1: Audit (Read-Only) -----
+        # Required for Prowler 3.x S3 checks defined in orchestrator.py.
+        # All communication is restricted to TLS via the SecureTransport condition.
+        - PolicyName: S3SentryAuditPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3ReadAccess
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketObjectLockConfiguration
+                  - s3:GetBucketLogging
+                  - s3:GetBucketLocation
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetBucketCORS
+                  - s3:GetReplicationConfiguration
+                Resource: "arn:aws:s3:::*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+              - Sid: CloudTrailReadAccess
+                Effect: Allow
+                Action:
+                  - cloudtrail:ListTrails
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetEventSelectors
+                Resource: "*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+              - Sid: CloudWatchLogsReadAccess
+                Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                Resource: "*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+              - Sid: KMSReadAccess
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:GetKeyRotationStatus
+                  - kms:GetKeyPolicy
+                Resource: "*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+        # ----- Policy 2: Remediation (Limited Write) -----
+        # Required for Phase 4 safety_engine.py one-click fixes.
+        # Scoped to bucket-level S3 ARNs only — no object-level access.
+        # Never includes DeleteBucket, DeleteObject, PutObject, or any IAM action.
+        - PolicyName: S3SentryRemediationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3WriteAccess
+                Effect: Allow
+                Action:
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketPolicy
+                  - s3:PutEncryptionConfiguration
+                  - s3:PutBucketVersioning
+                  - s3:PutBucketAcl
+                  - s3:PutBucketLogging
+                Resource: "arn:aws:s3:::*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+              - Sid: KMSWriteAccess
+                Effect: Allow
+                Action:
+                  - kms:EnableKeyRotation
+                Resource: "*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+# The customer copies these three values into the S3 Sentry onboarding form.
+# The orchestrator stores them as:
+#   PK = ACC#<AWSAccountId>
+#   SK = METADATA
+#   RoleArn = <RoleArn>
+#   ExternalId = <ExternalId>
+Outputs:
+  RoleArn:
+    Description: "S3 Sentry — paste this as your Role ARN"
+    Value: !GetAtt S3SentryCrossAccountRole.Arn
+
+  ExternalId:
+    Description: "S3 Sentry — paste this as your External ID"
+    Value: !Ref ExternalId
+
+  AWSAccountId:
+    Description: "S3 Sentry — your AWS Account ID"
+    Value: !Ref AWS::AccountId
