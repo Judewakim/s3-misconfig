@@ -12,20 +12,20 @@ In the modern cloud era, a single misconfigured S3 bucket can lead to catastroph
 
 S3 Sentry utilizes a Cross-Account Trust Handshake to scan client environments securely.
 
-  - The Handshake: Uses a unique ExternalID protocol to prevent "Confused Deputy" attacks.
+  - <b>The Handshake</b>: Uses a unique ExternalID protocol to prevent "Confused Deputy" attacks.
 
-  - The Engine: Powered by an orchestrated Prowler CLI integration for industry-standard security checks.
+  - <b>The Engine</b>: Powered by an orchestrated Prowler CLI integration for industry-standard security checks.
 
-  - The Single-Table Design: Leverages Amazon DynamoDB to manage thousands of tenants and millions of findings within a high-performance, scalable schema.
+  - <b>The Single-Table Design</b>: Leverages Amazon DynamoDB to manage thousands of tenants and millions of findings within a high-performance, scalable schema.
 
 ------
 ### Key Features
 
-  - Automated Client Onboarding: Deployable CloudFormation templates that establish secure, least-privilege IAM roles in under 60 seconds.
+  - <b>Automated Client Onboarding</b>: Deployable CloudFormation templates that establish secure, least-privilege IAM roles in under 60 seconds.
 
-  - Multi-Tenant Orchestration: A central engine that iterates through onboarded accounts and performs deep-scan security audits.
+  - <b>Multi-Tenant Orchestration</b>: A central engine that iterates through onboarded accounts and performs deep-scan security audits.
 
-  - Security Intelligence: Covers 9 critical S3 security vectors, including:
+  - <b>Security Intelligence</b>: Covers 9 critical S3 security vectors, including:
 
     - Public Access Block verification.
 
@@ -55,9 +55,7 @@ S3 Sentry utilizes a Cross-Account Trust Handshake to scan client environments s
 
   2. Run the orchestrator:
 
-    ```PowerShell
-    .\run_orchestrator.bat
-    ```
+    `.\run_orchestrator.bat`
 
 ### Roadmap
 
