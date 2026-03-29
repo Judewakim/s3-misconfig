@@ -218,5 +218,108 @@ appears in logs, CloudFormation events (`NoEcho: true`), or source code.
 
 ---
 
-*Last updated: Phase 2 complete — cross-account scan verified end-to-end.*
-*Next: Phase 3 — Step Function orchestration (Scan → Store → Email → PAUSE).*
+---
+
+## Phase 3 — Cloud-Native Orchestration
+
+### The Pivot
+The local `orchestrator.py` worked, but it required a developer's machine to be awake,
+credentialed, and running the correct Python virtual environment. That's not a product —
+it's a prototype. The pivot was total: rip out everything Windows-specific and rebuild
+the orchestrator as a **Docker container deployed to AWS Lambda**, triggered by
+**EventBridge** on a daily schedule, with zero on-premises dependencies.
+
+The subprocess/credential-injection approach from Phase 2 survived intact. The only
+rewrites were removing `atexit`, the `sys.platform` check, and the Python version guard —
+all local-dev scaffolding that would either crash or block Lambda execution. The new
+`lambda_handler.py` is architecturally identical to `orchestrator.py` minus 30 lines of
+Windows-only code and plus a `handler(event, context)` entry point.
+
+The IaC decision was equally significant. Rather than clicking through the AWS Console
+to create an ECR repo, an IAM role, an SNS topic, and an EventBridge rule separately,
+everything was codified in a single `provider_infrastructure.yaml` CloudFormation stack.
+One `aws cloudformation deploy` command provisions the entire provider-side infrastructure
+reproducibly and auditably.
+
+### The Scar
+**The Exec Format Error.** The first Lambda test invocation returned no output and logged:
+```
+exec /var/lang/bin/python3.11: exec format error
+```
+No stack trace. No line number. Just a binary incompatibility between an ARM-built Docker
+image and Lambda's x86_64 execution environment. The root cause: building on an ARM
+machine (or any machine) without explicitly targeting the Lambda platform. The fix is
+a single flag:
+```
+docker build --platform linux/amd64 -t s3sentry-orchestrator .
+```
+Without `--platform linux/amd64` in both the `docker build` command and the `FROM`
+directive in the Dockerfile, the image compiles for the host architecture. Lambda runs
+x86_64. The mismatch produces a crash before the Python interpreter even starts — no
+Python-level exception, no useful log entry.
+
+**The Read-Only Filesystem.** The second crash was more subtle. Prowler writes a
+`~/.prowler/` configuration and cache directory on every startup. In Lambda, the entire
+filesystem is read-only except for `/tmp`. The process crashed silently before producing
+any scan output. Two `ENV` directives in the Dockerfile solved it permanently:
+```dockerfile
+ENV HOME=/tmp
+ENV PROWLER_OUTPUT_DIRECTORY=/tmp
+```
+`HOME=/tmp` redirects all `~/` writes. `PROWLER_OUTPUT_DIRECTORY=/tmp` is belt-and-
+suspenders — it ensures Prowler's internal default output path also targets the writable
+volume even if the `--output-directory` flag is somehow not applied.
+
+### The 'Aha!' Moment
+The first SNS email arriving in the inbox with a correct severity breakdown:
+```
+⚠️ S3Sentry Alert: 4 Findings for acc#928459458650
+
+The daily scan is complete. We found 4 FAIL findings across 2 bucket(s).
+
+Severity Breakdown:
+  Critical : 0
+  High     : 2
+  Medium   : 2
+  Low      : 0
+```
+This was the moment the architecture proved itself end-to-end in the cloud. EventBridge
+fired the Lambda. Lambda assumed the cross-account role. Prowler ran inside the container,
+wrote JSON to `/tmp`, the handler parsed it, saved findings to DynamoDB, computed severity
+counts from the raw Prowler output, and published the categorized alert to SNS — all
+without a single local machine involved. The pipeline was autonomous.
+
+The severity computation deserves a note: counts are derived from the raw Prowler JSON
+*before* the findings are enriched and written to DynamoDB. This means the SNS email
+reflects Prowler's native severity judgement, not any post-processing. `default=str` on
+`json.dumps` in the SNS body prevents crashes if any Prowler field returns a `datetime`
+or other non-JSON-serializable type — a defensive pattern learned from production SNS
+encode errors.
+
+### The Best Practice
+**Infrastructure as Code — zero-click, zero-drift deployment.**
+`provider_infrastructure.yaml` encodes the complete provider-side infrastructure: ECR
+repository (with scan-on-push and a 5-image lifecycle policy for cost control), the
+`S3SentryOrchestratorRole` IAM role (with STS AssumeRole scoped specifically to
+`arn:aws:iam::*:role/S3SentryCrossAccountRole`), the SNS topic, the Lambda function,
+and the EventBridge rule with its invoke permission. Stack outputs include the exact
+`docker push` and `aws lambda update-function-code` commands templated with the correct
+account ID and region.
+
+**Least-Privilege Principal tightening.** Phase 2 used `arn:aws:iam::390488375643:root`
+as the trust policy Principal in `client_onboarding.yaml` — a necessary workaround while
+the Lambda execution role didn't exist yet. Phase 3 resolved the `TODO` comment: the
+Principal was tightened to `arn:aws:iam::390488375643:role/S3SentryOrchestratorRole`.
+Now only the specific Lambda execution role can assume the cross-account role — not any
+principal in the provider account. This is the IAM equivalent of replacing a master key
+with a purpose-cut key.
+
+**CloudWatch Log Retention.** Lambda creates log groups automatically but with infinite
+retention by default. A 7-day retention policy was applied to `/aws/lambda/S3SentryOrchestrator`,
+preventing unbounded CloudWatch storage costs while retaining enough history to diagnose
+any scan-cycle failure.
+
+---
+
+*Last updated: Phase 3 complete — Lambda container verified, SNS alerting working, trust policy tightened.*
+*Next: Phase 4 — Automated Remediation & Audit Trails (Step Functions → Safety Engine → SES → "The Fix Button").*

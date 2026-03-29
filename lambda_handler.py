@@ -268,12 +268,30 @@ def run_s3_scan(assumed_session):
             raw_findings = json.load(fh)
 
         print(f"[{account_id}] Prowler returned {len(raw_findings)} finding(s).")
-        if not raw_findings:
-            print(f"[{account_id}] No findings (account may have no S3 buckets). Nothing to store.")
-            return
 
-        enriched = [_enrich_finding(f, account_id) for f in raw_findings]
-        save_to_dynamodb(enriched)
+        fail_findings = [f for f in raw_findings if f.get("Status") == "FAIL"]
+
+        if raw_findings:
+            enriched = [_enrich_finding(f, account_id) for f in raw_findings]
+            save_to_dynamodb(enriched)
+        else:
+            print(f"[{account_id}] No findings (account may have no S3 buckets). Nothing to store.")
+
+        # Build the summary dict that the handler will pass to _publish_summary.
+        sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for f in fail_findings:
+            key = f.get("Severity", "").lower()
+            if key in sev:
+                sev[key] += 1
+
+        return {
+            "account_id":        account_id,
+            "total_findings":    len(raw_findings),
+            "fail_count":        len(fail_findings),
+            "buckets_affected":  len({f.get("ResourceId", "") for f in fail_findings}),
+            "severity_breakdown": sev,
+            "fail_findings":     fail_findings,   # raw dicts — JSON-dumped in SNS body
+        }
 
     finally:
         shutil.rmtree(output_dir, ignore_errors=True)
@@ -283,22 +301,44 @@ def run_s3_scan(assumed_session):
 # SNS summary notification
 # ---------------------------------------------------------------------------
 
-def _publish_summary(results):
+def _publish_summary(account_id, scan_summary):
     """
-    Publish a scan-complete summary to SNS if SNS_TOPIC_ARN is configured.
+    Publish a per-tenant scan summary to SNS if SNS_TOPIC_ARN is configured.
     No-ops silently when the env var is absent (scan-only mode).
+
+    Subject format : ⚠️ S3Sentry Alert: {fail_count} Findings for acc#{account_id}
+    Body           : human-readable severity breakdown + JSON finding details
     """
     if not SNS_TOPIC_ARN:
         return
-    success = sum(1 for r in results if r["status"] == "SUCCESS")
-    errors  = sum(1 for r in results if r["status"] == "ERROR")
-    sns = boto3.client("sns")
-    sns.publish(
-        TopicArn=SNS_TOPIC_ARN,
-        Subject=f"S3 Sentry Scan Complete — {success} OK / {errors} errors",
-        Message=json.dumps(results, indent=2),
+
+    fail_count       = scan_summary["fail_count"]
+    buckets_affected = scan_summary["buckets_affected"]
+    sev              = scan_summary["severity_breakdown"]
+    fail_findings    = scan_summary["fail_findings"]
+
+    subject = f"\u26a0\ufe0f S3Sentry Alert: {fail_count} Findings for acc#{account_id}"
+
+    body = (
+        f"The daily scan is complete. "
+        f"We found {fail_count} FAIL findings across {buckets_affected} bucket(s).\n"
+        f"\n"
+        f"Severity Breakdown:\n"
+        f"  Critical : {sev['critical']}\n"
+        f"  High     : {sev['high']}\n"
+        f"  Medium   : {sev['medium']}\n"
+        f"  Low      : {sev['low']}\n"
+        f"\n"
+        f"--- Finding Details (JSON) ---\n"
+        f"{json.dumps(fail_findings, indent=2, default=str)}\n"
     )
-    print(f"SNS summary published: {success} OK, {errors} errors.")
+
+    boto3.client("sns").publish(
+        TopicArn=SNS_TOPIC_ARN,
+        Subject=subject,
+        Message=body,
+    )
+    print(f"[{account_id}] SNS alert published: {fail_count} FAIL finding(s).")
 
 
 # ---------------------------------------------------------------------------
@@ -355,14 +395,27 @@ def handler(event, context):
 
         try:
             print(f"[{account_id}] Starting scan...")
-            run_s3_scan(assumed_session)
+            scan_summary = run_s3_scan(assumed_session)
             print(f"[{account_id}] Scan complete.")
-            results.append({"accountId": account_id, "status": "SUCCESS"})
+
+            if scan_summary:
+                _publish_summary(account_id, scan_summary)
+                results.append({
+                    "accountId":      account_id,
+                    "status":         "SUCCESS",
+                    "totalFindings":  scan_summary["total_findings"],
+                    "failCount":      scan_summary["fail_count"],
+                    "bucketsAffected": scan_summary["buckets_affected"],
+                    "severityBreakdown": scan_summary["severity_breakdown"],
+                })
+            else:
+                # run_s3_scan returned None — Prowler failed fatally (logged inside)
+                results.append({"accountId": account_id, "status": "ERROR",
+                                 "error": "Prowler produced no output. See CloudWatch logs."})
+
         except Exception as e:
             print(f"[{account_id}] Scan failed unexpectedly: {e}.")
             results.append({"accountId": account_id, "status": "ERROR", "error": str(e)})
-
-    _publish_summary(results)
 
     return {
         "statusCode":    200,
