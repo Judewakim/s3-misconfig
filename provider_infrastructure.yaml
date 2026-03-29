@@ -10,33 +10,33 @@ Description: >
 # ---------------------------------------------------------------------------
 Parameters:
 
-  # LambdaImageUri:
-  #   Type: String
-  #   Description: >
-  #     ECR image URI for the S3 Sentry orchestrator container.
-  #     Format: <account>.dkr.ecr.<region>.amazonaws.com/s3sentry-orchestrator:latest
-  #     Leave as placeholder on first deploy; update after the initial ECR push.
-  #   Default: "PLACEHOLDER — push image to ECR and update-function-code"
+  LambdaImageUri:
+    Type: String
+    Description: >
+      ECR image URI for the S3 Sentry orchestrator container.
+      Format: <account>.dkr.ecr.<region>.amazonaws.com/s3sentry-orchestrator:latest
+      Leave as placeholder on first deploy; update after the initial ECR push.
+    Default: "PLACEHOLDER — push image to ECR and update-function-code"
 
   DynamoDBTableName:
     Type: String
     Default: "S3Sentry"
     Description: "Name of the existing S3 Sentry DynamoDB single table."
 
-  # ScanSchedule:
-  #   Type: String
-  #   Default: "cron(0 2 * * ? *)"
-  #   Description: "EventBridge schedule expression. Default: daily at 02:00 UTC."
+  ScanSchedule:
+    Type: String
+    Default: "cron(0 2 * * ? *)"
+    Description: "EventBridge schedule expression. Default: daily at 02:00 UTC."
 
-  # LambdaMemoryMB:
-  #   Type: Number
-  #   Default: 1024
-  #   Description: "Lambda memory allocation in MB. Prowler loads large provider objects; 1024 minimum recommended."
+  LambdaMemoryMB:
+    Type: Number
+    Default: 1024
+    Description: "Lambda memory allocation in MB. Prowler loads large provider objects; 1024 minimum recommended."
 
-  # LambdaTimeoutSeconds:
-  #   Type: Number
-  #   Default: 900
-  #   Description: "Lambda timeout in seconds. 900 = Lambda maximum (15 min)."
+  LambdaTimeoutSeconds:
+    Type: Number
+    Default: 900
+    Description: "Lambda timeout in seconds. 900 = Lambda maximum (15 min)."
 
 # ---------------------------------------------------------------------------
 # Resources
@@ -165,49 +165,55 @@ Resources:
   # -------------------------------------------------------------------------
   # 4. Lambda Function
   # -------------------------------------------------------------------------
-  # OrchestratorFunction:
-  #   Type: AWS::Lambda::Function
-  #   DependsOn: OrchestratorRole
-  #   Properties:
-  #     FunctionName: S3SentryOrchestrator
-  #     Description: "Scans all S3 Sentry tenants on a schedule using Prowler."
-  #     PackageType: Image
-  #     Code:
-  #       ImageUri: !Ref LambdaImageUri
-  #     Role: !GetAtt OrchestratorRole.Arn
-  #     Timeout: !Ref LambdaTimeoutSeconds
-  #     MemorySize: !Ref LambdaMemoryMB
-  #     Environment:
-  #       Variables:
-  #         DYNAMODB_TABLE: !Ref DynamoDBTableName
-  #         SNS_TOPIC_ARN:  !Ref ScanAlertsTopic
-  #     # Ephemeral storage default is 512MB; Prowler JSON output per scan < 1MB.
-  #     EphemeralStorage:
-  #       Size: 512
+  OrchestratorFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: OrchestratorRole
+    Properties:
+      FunctionName: S3SentryOrchestrator
+      Description: "Scans all S3 Sentry tenants on a schedule using Prowler."
+      PackageType: Image
+      Code:
+        ImageUri: !Ref LambdaImageUri
+      Role: !GetAtt OrchestratorRole.Arn
+      Timeout: !Ref LambdaTimeoutSeconds
+      MemorySize: !Ref LambdaMemoryMB
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref DynamoDBTableName
+          SNS_TOPIC_ARN:  !Ref ScanAlertsTopic
+      # Ephemeral storage default is 512MB; Prowler JSON output per scan < 1MB.
+      EphemeralStorage:
+        Size: 512
 
-  # # -------------------------------------------------------------------------
-  # # 5. EventBridge Scheduled Rule — daily trigger
-  # # -------------------------------------------------------------------------
-  # ScanScheduleRule:
-  #   Type: AWS::Events::Rule
-  #   Properties:
-  #     Name: S3SentryDailyScan
-  #     Description: "Triggers the S3 Sentry orchestrator on the configured schedule."
-  #     ScheduleExpression: !Ref ScanSchedule
-  #     State: ENABLED
-  #     Targets:
-  #       - Id: S3SentryOrchestratorTarget
-  #         Arn: !GetAtt OrchestratorFunction.Arn
-  #         Input: "{}"
+  OrchestratorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${S3SentryOrchestrator}"
+      RetentionInDays: 7
 
-  # # Permission for EventBridge to invoke the Lambda function.
-  # ScanSchedulePermission:
-  #   Type: AWS::Lambda::Permission
-  #   Properties:
-  #     FunctionName: !GetAtt OrchestratorFunction.Arn
-  #     Action: lambda:InvokeFunction
-  #     Principal: events.amazonaws.com
-  #     SourceArn: !GetAtt ScanScheduleRule.Arn
+  # -------------------------------------------------------------------------
+  # 5. EventBridge Scheduled Rule — daily trigger
+  # -------------------------------------------------------------------------
+  ScanScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: S3SentryDailyScan
+      Description: "Triggers the S3 Sentry orchestrator on the configured schedule."
+      ScheduleExpression: !Ref ScanSchedule
+      State: ENABLED
+      Targets:
+        - Id: S3SentryOrchestratorTarget
+          Arn: !GetAtt OrchestratorFunction.Arn
+          Input: "{}"
+
+  # Permission for EventBridge to invoke the Lambda function.
+  ScanSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt OrchestratorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScanScheduleRule.Arn
 
 # ---------------------------------------------------------------------------
 # Outputs
@@ -218,19 +224,19 @@ Outputs:
     Description: "Push your container image to this URI, then update the Lambda function."
     Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3sentry-orchestrator"
 
-  # OrchestratorRoleArn:
-  #   Description: >
-  #     ARN of S3SentryOrchestratorRole. Use this to tighten the trust policy
-  #     Principal in client_onboarding.yaml once this stack is deployed.
-  #   Value: !GetAtt OrchestratorRole.Arn
+  OrchestratorRoleArn:
+    Description: >
+      ARN of S3SentryOrchestratorRole. Use this to tighten the trust policy
+      Principal in client_onboarding.yaml once this stack is deployed.
+    Value: !GetAtt OrchestratorRole.Arn
 
   SNSTopicArn:
     Description: "Subscribe an email address to this topic to receive scan alerts."
     Value: !Ref ScanAlertsTopic
 
-  # LambdaFunctionName:
-  #   Description: "Lambda function name for use with update-function-code after each image push."
-  #   Value: !Ref OrchestratorFunction
+  LambdaFunctionName:
+    Description: "Lambda function name for use with update-function-code after each image push."
+    Value: !Ref OrchestratorFunction
 
   DeployInstructions:
     Description: "Run these commands after stack creation to push the image and activate the function."
