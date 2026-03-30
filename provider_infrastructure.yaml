@@ -10,7 +10,7 @@ Description: >
 # ---------------------------------------------------------------------------
 Parameters:
 
-  LambdaImageUri:
+  OrchestratorImageUri:
     Type: String
     Description: >
       ECR image URI for the S3 Sentry orchestrator container.
@@ -38,36 +38,46 @@ Parameters:
     Default: 900
     Description: "Lambda timeout in seconds. 900 = Lambda maximum (15 min)."
 
+  VaultBucketName:
+    Type: String
+    Default: "s3sentry-vault"
+    Description: "Provider-account S3 bucket for Safety Engine config snapshots before remediation."
+
+  SESFromAddress:
+    Type: String
+    Default: "alerts@yourdomain.com"
+    Description: "SES-verified sender address for dashboard emails. Must be verified in SES before use."
+
 # ---------------------------------------------------------------------------
 # Resources
 # ---------------------------------------------------------------------------
 Resources:
 
-  # -------------------------------------------------------------------------
-  # 1. ECR Repository
-  # -------------------------------------------------------------------------
-  OrchestratorECRRepo:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: s3sentry-orchestrator
-      ImageScanningConfiguration:
-        ScanOnPush: true
-      LifecyclePolicy:
-        LifecyclePolicyText: |
-          {
-            "rules": [
-              {
-                "rulePriority": 1,
-                "description": "Keep last 5 images to control ECR storage costs",
-                "selection": {
-                  "tagStatus": "any",
-                  "countType": "imageCountMoreThan",
-                  "countNumber": 5
-                },
-                "action": { "type": "expire" }
-              }
-            ]
-          }
+  # # -------------------------------------------------------------------------
+  # # 1. ECR Repository
+  # # -------------------------------------------------------------------------
+  # OrchestratorECRRepo:
+  #   Type: AWS::ECR::Repository
+  #   Properties:
+  #     RepositoryName: s3sentry-orchestrator
+  #     ImageScanningConfiguration:
+  #       ScanOnPush: true
+  #     LifecyclePolicy:
+  #       LifecyclePolicyText: |
+  #         {
+  #           "rules": [
+  #             {
+  #               "rulePriority": 1,
+  #               "description": "Keep last 5 images to control ECR storage costs",
+  #               "selection": {
+  #                 "tagStatus": "any",
+  #                 "countType": "imageCountMoreThan",
+  #                 "countNumber": 5
+  #               },
+  #               "action": { "type": "expire" }
+  #             }
+  #           ]
+  #         }
 
   # -------------------------------------------------------------------------
   # 2. SNS Topic — scan-complete alerts
@@ -146,21 +156,41 @@ Resources:
                 Action: sns:Publish
                 Resource: !Ref ScanAlertsTopic
 
-        # --- ECR — pull the container image on cold start ---
-        - PolicyName: S3SentryECRPull
+        # --- SES — send HTML dashboard emails to tenants ---
+        - PolicyName: S3SentrySES
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Sid: ECRAuth
-                Effect: Allow
-                Action: ecr:GetAuthorizationToken
-                Resource: "*"
-              - Sid: ECRImagePull
-                Effect: Allow
+              - Effect: Allow
                 Action:
-                  - ecr:BatchGetImage
-                  - ecr:GetDownloadUrlForLayer
-                Resource: !GetAtt OrchestratorECRRepo.Arn
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
+
+        # --- SSM — read HMAC signing key shared with Responder Lambda ---
+        - PolicyName: S3SentrySSMRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/s3sentry/*"
+
+        # # --- ECR — pull the container image on cold start ---
+        # - PolicyName: S3SentryECRPull
+        #   PolicyDocument:
+        #     Version: "2012-10-17"
+        #     Statement:
+        #       - Sid: ECRAuth
+        #         Effect: Allow
+        #         Action: ecr:GetAuthorizationToken
+        #         Resource: "*"
+        #       - Sid: ECRImagePull
+        #         Effect: Allow
+        #         Action:
+        #           - ecr:BatchGetImage
+        #           - ecr:GetDownloadUrlForLayer
+        #         Resource: !GetAtt OrchestratorECRRepo.Arn
 
   # -------------------------------------------------------------------------
   # 4. Lambda Function
@@ -173,14 +203,21 @@ Resources:
       Description: "Scans all S3 Sentry tenants on a schedule using Prowler."
       PackageType: Image
       Code:
-        ImageUri: !Ref LambdaImageUri
+        ImageUri: !Ref OrchestratorImageUri
       Role: !GetAtt OrchestratorRole.Arn
       Timeout: !Ref LambdaTimeoutSeconds
       MemorySize: !Ref LambdaMemoryMB
       Environment:
         Variables:
-          DYNAMODB_TABLE: !Ref DynamoDBTableName
-          SNS_TOPIC_ARN:  !Ref ScanAlertsTopic
+          DYNAMODB_TABLE:   !Ref DynamoDBTableName
+          SNS_TOPIC_ARN:    !Ref ScanAlertsTopic
+          SES_FROM_ADDRESS: !Ref SESFromAddress
+          HMAC_KEY_PATH:    "/s3sentry/hmac_signing_key"
+          # RESPONDER_URL is injected after stack creation via a stack update,
+          # because the URL is only known once the ResponderFunctionUrl resource exists.
+          # Initial deploy: leave blank. After first deploy, run:
+          #   aws cloudformation update-stack ... --parameters ParameterKey=ResponderUrl,...
+          RESPONDER_URL:    ""
       # Ephemeral storage default is 512MB; Prowler JSON output per scan < 1MB.
       EphemeralStorage:
         Size: 512
@@ -188,7 +225,7 @@ Resources:
   OrchestratorLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${S3SentryOrchestrator}"
+      LogGroupName: !Sub "/aws/lambda/${OrchestratorFunction}"
       RetentionInDays: 7
 
   # -------------------------------------------------------------------------
@@ -215,14 +252,147 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt ScanScheduleRule.Arn
 
+  # -------------------------------------------------------------------------
+  # 6. SSM Parameter — managed by deploy.ps1, NOT by CloudFormation.
+  #    CloudFormation cannot create SecureString parameters. deploy.ps1 Step 1
+  #    seeds /s3sentry/hmac_signing_key as a SecureString before this stack
+  #    is deployed. Keeping it in CFN would cause a conflict (CFN overwrites
+  #    the real SecureString key with a plain String "CHANGE_ME" placeholder).
+  # -------------------------------------------------------------------------
+  # HMACSigningKey: (removed — owned by deploy.ps1)
+
+  # -------------------------------------------------------------------------
+  # 7. IAM Role — S3SentryResponderRole
+  #    Used by the Responder Lambda only. Scoped to the minimum permissions
+  #    required to validate tokens, execute fixes, and write audit events.
+  # -------------------------------------------------------------------------
+  ResponderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SentryResponderRole
+      Description: "Execution role for the S3 Sentry Responder Lambda (action handler)."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+
+      Policies:
+        # --- CloudWatch Logs ---
+        - PolicyName: ResponderLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/S3SentryResponder:*"
+
+        # --- DynamoDB — token validation, suppression writes, audit events ---
+        - PolicyName: ResponderDynamoDB
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource:
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTableName}"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTableName}/index/*"
+
+        # --- STS — assume cross-account role to execute fixes ---
+        - PolicyName: ResponderCrossAccountAssume
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/S3SentryCrossAccountRole"
+
+        # --- SSM — read the same HMAC signing key as the Orchestrator ---
+        - PolicyName: ResponderSSMRead
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/s3sentry/*"
+
+        # --- S3 Vault — read snapshots for rollback; write before-state for new fixes ---
+        - PolicyName: ResponderVaultAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${VaultBucketName}/*"
+
+  # -------------------------------------------------------------------------
+  # 8. Responder Lambda — ZIP-based Python (no Prowler dependency)
+  #    Placeholder inline code allows the stack to deploy before responder.py
+  #    is written. Replace via: aws lambda update-function-code --zip-file
+  # -------------------------------------------------------------------------
+  ResponderFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ResponderRole
+    Properties:
+      FunctionName: S3SentryResponder
+      Description: "Handles action button clicks from S3 Sentry dashboard emails (FIX / IGNORE / ROLLBACK)."
+      Runtime: python3.11
+      Handler: responder.handler
+      Role: !GetAtt ResponderRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          DYNAMODB_TABLE: !Ref DynamoDBTableName
+          HMAC_KEY_PATH:  "/s3sentry/hmac_signing_key"
+          VAULT_BUCKET:   !Ref VaultBucketName
+      Code:
+        ZipFile: |
+          # Placeholder — deploy responder.py via update-function-code
+          import json
+          def handler(event, context):
+              return {
+                  "statusCode": 200,
+                  "headers": {"Content-Type": "text/html"},
+                  "body": "<h2>S3 Sentry Responder</h2><p>Deployment pending.</p>"
+              }
+
+  ResponderLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${ResponderFunction}"
+      RetentionInDays: 7
+
+  # -------------------------------------------------------------------------
+  # 9. Lambda Function URL — managed by deploy.ps1, NOT by CloudFormation.
+  #    AWS::Lambda::Url consistently creates a ghost resource: CFN reports
+  #    success and returns a URL string, but the URL is never attached to the
+  #    Lambda function (console shows nothing; requests return 403 Forbidden).
+  #    deploy.ps1 uses aws lambda create-function-url-config + add-permission
+  #    directly, which is reliable. The URL is then read via
+  #    get-function-url-config and injected into the Orchestrator env var.
+  # -------------------------------------------------------------------------
+  # ResponderFunctionUrl:    (removed — owned by deploy.ps1)
+  # ResponderFunctionUrlPermission: (removed — owned by deploy.ps1)
+
 # ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
 Outputs:
 
-  ECRRepositoryUri:
-    Description: "Push your container image to this URI, then update the Lambda function."
-    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3sentry-orchestrator"
+  # ECRRepositoryUri:
+  #   Description: "Push your container image to this URI, then update the Lambda function."
+  #   Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/s3sentry-orchestrator"
 
   OrchestratorRoleArn:
     Description: >
