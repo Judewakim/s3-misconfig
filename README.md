@@ -161,7 +161,50 @@ Severity Breakdown:
     --payload '{}' response.json && cat response.json
   ```
 
-### Roadmap
+------
+### Phase 4: Interactive SOAR Platform (In Progress)
+
+Phase 4 transforms S3 Sentry from a passive alerting system into an interactive
+security operations platform. Customers receive a rich HTML dashboard email and
+can approve automated fixes with a single click.
+
+#### Target Architecture
+
+```
+S3SentryOrchestrator Lambda
+  └── Sends SES HTML email per tenant
+        └── Per-finding action buttons (HMAC-signed URLs)
+                    │
+                    ▼ Customer clicks "Fix Now"
+        S3SentryResponder Lambda (Function URL)
+          ├── Validates HMAC token (expiry + single-use nonce)
+          ├── Snapshots current config → S3 Vault (safety engine)
+          ├── Applies fix via cross-account assumed session
+          └── Writes audit trail → DynamoDB (REMEDIATION# items)
+```
+
+#### Phase 4 Infrastructure — Complete ✓
+
+| Component | Detail |
+|-----------|--------|
+| `S3SentryResponder` Lambda | Deployed, Function URL live |
+| HMAC signing key | Seeded in SSM (`/s3sentry/hmac_signing_key`) |
+| `deploy.ps1` | One-click deployment script (ECR + Docker + CFN + URL wiring) |
+| End-to-end scan | Verified — 12 findings across 3 buckets |
+
+#### Deployment
+
+All provider infrastructure is deployed via a single script from the project root:
+
+```powershell
+.\deploy.ps1
+```
+
+The script handles ECR repo creation, Docker image build (single-arch `linux/amd64`),
+ECR push, CloudFormation stack deploy, Function URL creation, and RESPONDER_URL wiring
+into the Orchestrator Lambda — in the correct order with no manual steps.
+
+#### Roadmap
 
   [x] Phase 1: Core Scan Engine & Local Simulation.
 
@@ -169,7 +212,15 @@ Severity Breakdown:
 
   [x] Phase 3: AWS Lambda Migration & Real-time SNS Notifications.
 
-  [ ] Phase 4: Automated Remediation & Audit Trails ("The Fix Button").
+  [~] Phase 4: Interactive SOAR Platform (Infrastructure complete — code sprints in progress).
+
+  [ ] Phase 4 Sprint 1: HMAC Token System + SES HTML Dashboard Email.
+
+  [ ] Phase 4 Sprint 2: Responder Lambda (FIX / IGNORE / ROLLBACK).
+
+  [ ] Phase 4 Sprint 3: Confidence Engine (per-finding action scoring).
+
+  [ ] Phase 4 Sprints 4-5: Rollback, Yesterday's Activity, Suppression System.
 
 ------
 ### SUPPORT AND CONTACT
