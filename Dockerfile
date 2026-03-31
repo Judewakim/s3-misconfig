@@ -37,6 +37,7 @@ RUN pip install --no-cache-dir \
 # Copy the Lambda handler into the Lambda task root (/var/task).
 # ---------------------------------------------------------------------------
 COPY lambda_handler.py ${LAMBDA_TASK_ROOT}/
+COPY token_utils.py    ${LAMBDA_TASK_ROOT}/
 
 # Lambda entry point — module=lambda_handler, function=handler
 CMD ["lambda_handler.handler"]

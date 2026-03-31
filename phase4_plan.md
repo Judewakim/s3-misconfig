@@ -79,15 +79,30 @@ S3SentryResponder Lambda (Function URL, public)
 | Sprint | Deliverable | New Files | Status |
 |--------|-------------|-----------|--------|
 | Infra | Provider infrastructure, deploy.ps1 | `deploy.ps1` | ✓ Complete |
-| 1 | HMAC token system + SES HTML email | `token_utils.py` | Next |
-| 2 | Responder Lambda (FIX / IGNORE / ROLLBACK) | `responder.py` | Planned |
+| 1 | HMAC token system + SES HTML email | `token_utils.py` | ✓ Complete |
+| 2 | Responder Lambda (FIX / IGNORE / ROLLBACK) | `responder.py` | Next |
 | 3 | Confidence Engine (0–100 score per finding) | `confidence.py` | Planned |
 | 4 | Rollback + Yesterday's Activity section | — | Planned |
 | 5 | Suppression system | `suppressor.py` | Planned |
 
 ---
 
-## Sprint 1 — HMAC Token System + SES HTML Email
+## Sprint 1 — HMAC Token System + SES HTML Email ✓ COMPLETE
+
+**Delivered:**
+- `token_utils.py` — HMAC-SHA256 token generation/validation, SSM key retrieval with module-level cache, `TokenSignatureError` / `TokenExpiredError` / `TokenSequenceError` exceptions, 11/11 tests passing locally
+- `lambda_handler.py` — `increment_scan_sequence()` (atomic DynamoDB `ADD`), `_build_action_url()`, `_send_dashboard_email()` (SES HTML with severity breakdown + per-finding Fix Now / Ignore buttons), SNS fallback when SES prerequisites absent
+- `Dockerfile` — added `COPY token_utils.py` so it's available in the Lambda container
+- `deploy.ps1` — added `aws lambda update-function-code` step after image push (CFN alone doesn't update Lambda when `:latest` tag doesn't change)
+- `provider_infrastructure.yaml` — added `dynamodb:UpdateItem` to `S3SentryOrchestratorRole` (required by `increment_scan_sequence`)
+
+**Verified:** `scanSequence: 1` confirmed in Lambda response. 12 findings across 3 buckets processed.
+
+**Scar:** `dynamodb:UpdateItem` was missing from the Orchestrator IAM policy — `increment_scan_sequence` uses `update_item` with `ADD`, which is a separate action from `PutItem`. Always audit DynamoDB permissions when adding new write patterns.
+
+---
+
+## Sprint 1 — HMAC Token System + SES HTML Email (archive)
 
 ### token_utils.py
 

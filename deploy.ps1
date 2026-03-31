@@ -145,6 +145,21 @@ Assert-Success "Docker push"
 Write-Host "  Pushed: $IMAGE_URI" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
+# Step 5b: Update Orchestrator Lambda to the newly pushed image digest
+#   CloudFormation only updates the Lambda when the OrchestratorImageUri
+#   parameter value changes. Since we always use :latest, CFN sees no diff
+#   and skips the update. This step resolves :latest to its current digest
+#   and forces Lambda to use the new code on the next invocation.
+# ---------------------------------------------------------------------------
+Write-Host "  Updating Orchestrator Lambda to new image digest..."
+aws lambda update-function-code `
+    --function-name S3SentryOrchestrator `
+    --region $REGION `
+    --image-uri $IMAGE_URI | Out-Null
+Assert-Success "Lambda update-function-code"
+Write-Host "  Orchestrator Lambda code updated." -ForegroundColor Green
+
+# ---------------------------------------------------------------------------
 # Step 6: Deploy CloudFormation stack (create or update)
 #   --no-fail-on-empty-changeset allows re-running without error when the
 #   template hasn't changed (e.g., re-running after an image-only update).

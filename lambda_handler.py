@@ -1,19 +1,21 @@
 """
 lambda_handler.py — S3 Sentry Orchestrator (Lambda entry point)
 
-Derived from orchestrator.py with all Windows/local-dev code removed:
-  - No atexit / input() blocking calls
-  - No Python version guard (Lambda base image is 3.11)
-  - No sys.platform check (_PROWLER_EXE is always the Linux path)
-  - No run_orchestrator.bat references
+Derived from orchestrator.py with all Windows/local-dev code removed.
 
-New additions:
-  - handler(event, context)   — Lambda entry point
-  - _publish_summary(results) — SNS scan-complete notification
-  - Timeout guard using context.get_remaining_time_in_millis()
+Phase 3 additions:
+  - handler(event, context)       — Lambda entry point
+  - _publish_summary()            — SNS fallback notification
+  - Timeout guard
+
+Phase 4 Sprint 1 additions:
+  - increment_scan_sequence()     — atomic DynamoDB counter per tenant
+  - _build_action_url()           — HMAC-signed action button URL
+  - _send_dashboard_email()       — SES HTML dashboard email (replaces SNS)
 """
 
 import glob
+import html
 import json
 import os
 import pathlib
@@ -22,6 +24,8 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
+
+import token_utils
 
 import boto3
 import botocore.exceptions
@@ -36,8 +40,11 @@ _PROWLER_EXE = pathlib.Path(sys.executable).parent / "prowler"
 # ---------------------------------------------------------------------------
 # Runtime configuration — all values injected via Lambda environment variables.
 # ---------------------------------------------------------------------------
-DYNAMODB_TABLE   = os.environ.get("DYNAMODB_TABLE", "S3Sentry")
-SNS_TOPIC_ARN    = os.environ.get("SNS_TOPIC_ARN")          # optional
+DYNAMODB_TABLE    = os.environ.get("DYNAMODB_TABLE", "S3Sentry")
+SNS_TOPIC_ARN     = os.environ.get("SNS_TOPIC_ARN")           # optional fallback
+SES_FROM_ADDRESS  = os.environ.get("SES_FROM_ADDRESS", "")
+HMAC_KEY_PATH     = os.environ.get("HMAC_KEY_PATH", "/s3sentry/hmac_signing_key")
+RESPONDER_URL     = os.environ.get("RESPONDER_URL", "").rstrip("/")
 TIMEOUT_BUFFER_MS = 180_000  # stop tenant loop if < 3 minutes remain
 
 # ---------------------------------------------------------------------------
@@ -342,6 +349,306 @@ def _publish_summary(account_id, scan_summary):
 
 
 # ---------------------------------------------------------------------------
+# Scan sequence — Phase 4 freshness tracking
+# ---------------------------------------------------------------------------
+
+def increment_scan_sequence(account_id):
+    """
+    Atomically increment the ScanSequence counter on the tenant METADATA item.
+
+    Uses DynamoDB ADD, which initialises the attribute to 0 if absent, then
+    increments — so the very first call returns 1.
+
+    All HMAC tokens generated in a scan cycle embed this sequence number.
+    The Responder validates that the token sequence matches the tenant's
+    current sequence, preventing action on findings from a superseded scan.
+
+    Returns the new (post-increment) sequence as an int.
+    """
+    table = boto3.resource("dynamodb").Table(DYNAMODB_TABLE)
+    resp = table.update_item(
+        Key={"PK": f"ACC#{account_id}", "SK": "METADATA"},
+        UpdateExpression="ADD ScanSequence :one",
+        ExpressionAttributeValues={":one": 1},
+        ReturnValues="UPDATED_NEW",
+    )
+    return int(resp["Attributes"]["ScanSequence"])
+
+
+# ---------------------------------------------------------------------------
+# Action URL builder — Phase 4 HMAC tokens
+# ---------------------------------------------------------------------------
+
+def _build_action_url(check_id, resource_id, action, account_id,
+                      recipient_email, scan_sequence, signing_key,
+                      duration_hours=24):
+    """
+    Generate a signed HMAC token for one finding action and return the full
+    Responder URL with the token as a query parameter.
+
+    recipient_email is embedded in the token payload so Sprint 2's Responder
+    can pass it as SourceIdentity when assuming the cross-account role, making
+    the specific email address visible in the client's CloudTrail logs.
+    """
+    payload = {
+        "account_id":      account_id,
+        "check_id":        check_id,
+        "resource_id":     resource_id,
+        "action":          action,
+        "recipient_email": recipient_email,
+        "scan_sequence":   scan_sequence,
+    }
+    token = token_utils.generate_action_token(payload, signing_key, duration_hours)
+    return f"{RESPONDER_URL}?token={token}"
+
+
+# ---------------------------------------------------------------------------
+# SES HTML dashboard email — Phase 4 Sprint 1
+# ---------------------------------------------------------------------------
+
+_SEV_COLOR = {
+    "critical": "#dc2626",
+    "high":     "#ea580c",
+    "medium":   "#d97706",
+    "low":      "#2563eb",
+}
+
+
+def _send_dashboard_email(account_id, scan_summary, recipient_email,
+                          scan_sequence, signing_key):
+    """
+    Build and send the per-tenant SES HTML dashboard email.
+
+    Falls back to _publish_summary (SNS) if SES prerequisites are absent
+    (SES_FROM_ADDRESS, RESPONDER_URL, or recipient_email not set).
+
+    Email sections:
+      1. Header + scan metadata (account, date, sequence)
+      2. Risk banner (derived from highest severity present)
+      3. Severity breakdown (Critical / High / Medium / Low counts)
+      4. Findings table (per-finding: bucket, severity, issue, NIST, buttons)
+      5. Footer (expiry notice)
+    """
+    if not SES_FROM_ADDRESS or not RESPONDER_URL or not recipient_email:
+        print(f"[{account_id}] SES prerequisites missing "
+              f"(FROM={bool(SES_FROM_ADDRESS)}, URL={bool(RESPONDER_URL)}, "
+              f"EMAIL={bool(recipient_email)}) — falling back to SNS.")
+        _publish_summary(account_id, scan_summary)
+        return
+
+    fail_count       = scan_summary["fail_count"]
+    buckets_affected = scan_summary["buckets_affected"]
+    sev              = scan_summary["severity_breakdown"]
+    fail_findings    = scan_summary["fail_findings"]
+    scan_date        = datetime.now(timezone.utc).strftime("%B %d, %Y")
+
+    # Risk level derived from highest severity present
+    if sev["critical"] > 0:
+        risk_level, risk_color, risk_icon = "CRITICAL RISK", "#dc2626", "&#128308;"
+    elif sev["high"] > 0:
+        risk_level, risk_color, risk_icon = "HIGH RISK",     "#ea580c", "&#129001;"
+    elif sev["medium"] > 0:
+        risk_level, risk_color, risk_icon = "MEDIUM RISK",   "#d97706", "&#128993;"
+    elif sev["low"] > 0:
+        risk_level, risk_color, risk_icon = "LOW RISK",      "#2563eb", "&#128309;"
+    else:
+        risk_level, risk_color, risk_icon = "CLEAN",         "#16a34a", "&#9989;"
+
+    # Build one table row per FAIL finding
+    finding_rows = []
+    for f in fail_findings:
+        check_id    = f.get("CheckID", "")
+        resource_id = html.escape(f.get("ResourceId", ""))
+        severity    = f.get("Severity", "unknown").upper()
+        issue       = html.escape(f.get("CheckTitle") or f.get("StatusExtended") or check_id)
+        sev_color   = _SEV_COLOR.get(severity.lower(), "#666666")
+        nist        = NIST_CSF_MAPPING.get(check_id, [])
+        nist_label  = html.escape(nist[0] if nist else "—")
+
+        fix_url    = _build_action_url(check_id, resource_id, "FIX",
+                                       account_id, recipient_email,
+                                       scan_sequence, signing_key, 24)
+        ignore_url = _build_action_url(check_id, resource_id, "IGNORE",
+                                       account_id, recipient_email,
+                                       scan_sequence, signing_key, 24)
+
+        finding_rows.append(
+            f'<tr style="border-bottom:1px solid #f0f0f0;">'
+            f'<td style="padding:10px 16px;font-size:13px;color:#1e293b;font-family:monospace;">{resource_id}</td>'
+            f'<td style="padding:10px 16px;font-size:12px;font-weight:bold;color:{sev_color};">{severity}</td>'
+            f'<td style="padding:10px 16px;font-size:13px;color:#475569;">{issue}</td>'
+            f'<td style="padding:10px 16px;font-size:12px;color:#94a3b8;">{nist_label}</td>'
+            f'<td style="padding:10px 16px;white-space:nowrap;">'
+            f'<a href="{fix_url}" style="display:inline-block;padding:6px 14px;background:#16a34a;'
+            f'color:#ffffff;text-decoration:none;border-radius:4px;font-size:12px;'
+            f'font-weight:bold;margin-right:6px;">Fix Now</a>'
+            f'<a href="{ignore_url}" style="display:inline-block;padding:6px 14px;'
+            f'background:#e2e8f0;color:#475569;text-decoration:none;border-radius:4px;'
+            f'font-size:12px;">Ignore</a>'
+            f'</td></tr>'
+        )
+
+    findings_html = "\n".join(finding_rows) if finding_rows else (
+        '<tr><td colspan="5" style="padding:24px;text-align:center;'
+        'color:#16a34a;font-size:14px;">&#9989; No FAIL findings. Account is clean.</td></tr>'
+    )
+
+    safe_account   = html.escape(account_id)
+    safe_recipient = html.escape(recipient_email)
+
+    html_body = f"""<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:20px;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+<table width="640" cellpadding="0" cellspacing="0"
+       style="margin:0 auto;background:#ffffff;border-radius:8px;
+              overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+
+  <!-- Header -->
+  <tr>
+    <td colspan="5" bgcolor="#1e293b" style="padding:24px 32px;">
+      <span style="color:#ffffff;font-size:20px;font-weight:bold;">
+        &#128274; S3 Sentry Security Dashboard
+      </span>
+    </td>
+  </tr>
+
+  <!-- Scan metadata -->
+  <tr>
+    <td colspan="5" bgcolor="#f8fafc"
+        style="padding:12px 32px;border-bottom:1px solid #e2e8f0;">
+      <span style="color:#64748b;font-size:12px;">
+        Account: <strong>{safe_account}</strong> &nbsp;|&nbsp;
+        Scan Date: <strong>{scan_date}</strong> &nbsp;|&nbsp;
+        Sequence: <strong>#{scan_sequence}</strong>
+      </span>
+    </td>
+  </tr>
+
+  <!-- Risk banner -->
+  <tr>
+    <td colspan="5" bgcolor="{risk_color}" style="padding:20px 32px;">
+      <span style="color:#ffffff;font-size:22px;font-weight:bold;">
+        {risk_icon}&nbsp; {risk_level}
+      </span><br>
+      <span style="color:rgba(255,255,255,0.88);font-size:14px;
+                   margin-top:4px;display:block;">
+        {fail_count} finding(s) across {buckets_affected} bucket(s)
+      </span>
+    </td>
+  </tr>
+
+  <!-- Severity breakdown -->
+  <tr>
+    <td colspan="5" style="padding:20px 32px;border-bottom:1px solid #e2e8f0;">
+      <span style="font-size:11px;font-weight:bold;color:#94a3b8;
+                   text-transform:uppercase;letter-spacing:1px;">
+        Severity Breakdown
+      </span>
+      <table style="margin-top:12px;border-collapse:collapse;">
+        <tr>
+          <td style="padding:8px 24px 8px 0;text-align:center;">
+            <span style="display:block;font-size:28px;font-weight:bold;
+                         color:#dc2626;">{sev['critical']}</span>
+            <span style="font-size:11px;color:#94a3b8;
+                         text-transform:uppercase;">Critical</span>
+          </td>
+          <td style="padding:8px 24px;text-align:center;
+                     border-left:1px solid #f1f5f9;">
+            <span style="display:block;font-size:28px;font-weight:bold;
+                         color:#ea580c;">{sev['high']}</span>
+            <span style="font-size:11px;color:#94a3b8;
+                         text-transform:uppercase;">High</span>
+          </td>
+          <td style="padding:8px 24px;text-align:center;
+                     border-left:1px solid #f1f5f9;">
+            <span style="display:block;font-size:28px;font-weight:bold;
+                         color:#d97706;">{sev['medium']}</span>
+            <span style="font-size:11px;color:#94a3b8;
+                         text-transform:uppercase;">Medium</span>
+          </td>
+          <td style="padding:8px 24px;text-align:center;
+                     border-left:1px solid #f1f5f9;">
+            <span style="display:block;font-size:28px;font-weight:bold;
+                         color:#2563eb;">{sev['low']}</span>
+            <span style="font-size:11px;color:#94a3b8;
+                         text-transform:uppercase;">Low</span>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Findings table — column headers -->
+  <tr bgcolor="#f8fafc">
+    <td style="padding:10px 16px;font-size:11px;font-weight:bold;color:#64748b;
+               text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Bucket</td>
+    <td style="padding:10px 16px;font-size:11px;font-weight:bold;color:#64748b;
+               text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Severity</td>
+    <td style="padding:10px 16px;font-size:11px;font-weight:bold;color:#64748b;
+               text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Issue</td>
+    <td style="padding:10px 16px;font-size:11px;font-weight:bold;color:#64748b;
+               text-transform:uppercase;border-bottom:2px solid #e2e8f0;">NIST CSF</td>
+    <td style="padding:10px 16px;font-size:11px;font-weight:bold;color:#64748b;
+               text-transform:uppercase;border-bottom:2px solid #e2e8f0;">Action</td>
+  </tr>
+
+  <!-- Findings rows -->
+  {findings_html}
+
+  <!-- Footer -->
+  <tr>
+    <td colspan="5" bgcolor="#f8fafc"
+        style="padding:20px 32px;border-top:1px solid #e2e8f0;">
+      <span style="font-size:12px;color:#94a3b8;line-height:1.6;">
+        Action links expire in 24 hours. Sent to {safe_recipient}.<br>
+        S3 Sentry scans your account daily. Next scan: tomorrow at 02:00 UTC.
+      </span>
+    </td>
+  </tr>
+
+</table>
+</body>
+</html>"""
+
+    plain_text = (
+        f"S3 Sentry Security Dashboard\n"
+        f"Account: {account_id} | Scan Date: {scan_date} | Sequence: #{scan_sequence}\n\n"
+        f"Risk Level : {risk_level}\n"
+        f"Findings   : {fail_count} across {buckets_affected} bucket(s)\n\n"
+        f"Severity Breakdown:\n"
+        f"  Critical : {sev['critical']}\n"
+        f"  High     : {sev['high']}\n"
+        f"  Medium   : {sev['medium']}\n"
+        f"  Low      : {sev['low']}\n\n"
+        f"Findings:\n" +
+        "\n".join(
+            f"  [{f.get('Severity','').upper()}] {f.get('ResourceId','')} — "
+            f"{f.get('CheckTitle') or f.get('CheckID','')}"
+            for f in fail_findings
+        ) +
+        "\n\nTo act on findings, open this email in an HTML-capable client.\n"
+        "Action links expire in 24 hours.\n"
+    )
+
+    boto3.client("ses").send_email(
+        Source=SES_FROM_ADDRESS,
+        Destination={"ToAddresses": [recipient_email]},
+        Message={
+            "Subject": {
+                "Data": f"\u26a0\ufe0f S3 Sentry: {fail_count} finding(s) in "
+                        f"acc#{account_id} \u2014 Action Required"
+            },
+            "Body": {
+                "Html": {"Data": html_body},
+                "Text": {"Data": plain_text},
+            },
+        },
+    )
+    print(f"[{account_id}] SES dashboard email sent to {recipient_email} "
+          f"(seq #{scan_sequence}, {fail_count} finding(s)).")
+
+
+# ---------------------------------------------------------------------------
 # Lambda entry point
 # ---------------------------------------------------------------------------
 
@@ -394,19 +701,31 @@ def handler(event, context):
             continue
 
         try:
+            # Increment sequence BEFORE scan so all tokens in this email cycle
+            # share the same number. A re-run invalidates every prior email's tokens.
+            scan_sequence = increment_scan_sequence(account_id)
+            print(f"[{account_id}] ScanSequence incremented to {scan_sequence}.")
+
             print(f"[{account_id}] Starting scan...")
             scan_summary = run_s3_scan(assumed_session)
             print(f"[{account_id}] Scan complete.")
 
             if scan_summary:
-                _publish_summary(account_id, scan_summary)
+                signing_key = token_utils.get_signing_key(HMAC_KEY_PATH)
+                _send_dashboard_email(
+                    account_id, scan_summary,
+                    recipient_email=tenant.get("Email"),
+                    scan_sequence=scan_sequence,
+                    signing_key=signing_key,
+                )
                 results.append({
-                    "accountId":      account_id,
-                    "status":         "SUCCESS",
-                    "totalFindings":  scan_summary["total_findings"],
-                    "failCount":      scan_summary["fail_count"],
-                    "bucketsAffected": scan_summary["buckets_affected"],
+                    "accountId":         account_id,
+                    "status":            "SUCCESS",
+                    "totalFindings":     scan_summary["total_findings"],
+                    "failCount":         scan_summary["fail_count"],
+                    "bucketsAffected":   scan_summary["buckets_affected"],
                     "severityBreakdown": scan_summary["severity_breakdown"],
+                    "scanSequence":      scan_sequence,
                 })
             else:
                 # run_s3_scan returned None — Prowler failed fatally (logged inside)
