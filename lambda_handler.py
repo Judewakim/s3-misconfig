@@ -51,27 +51,41 @@ TIMEOUT_BUFFER_MS = 180_000  # stop tenant loop if < 3 minutes remain
 # S3 checks to run and their NIST CSF v1.1 control mappings
 # ---------------------------------------------------------------------------
 S3_CHECKS = [
-    "s3_bucket_public_access",
+    # Public access — verified valid in Prowler v3.16.17 via --list-checks
+    "s3_bucket_level_public_access_block",         # bucket-level Block Public Access (4 settings)
+    "s3_account_level_public_access_blocks",        # account-level Block Public Access
+    "s3_bucket_public_access",                      # actual public accessibility (ACL/policy)
+    "s3_bucket_public_list_acl",                    # public list ACL
+    "s3_bucket_public_write_acl",                   # public write ACL
+    "s3_bucket_policy_public_write_access",         # bucket policy allows public write
+    # Data protection
     "s3_bucket_acl_prohibited",
-    "s3_bucket_policy_no_allow_mixed_and_public_access",
     "s3_bucket_default_encryption",
-    "s3_bucket_versioning_enabled",
-    "s3_bucket_server_access_logging_enabled",
-    "s3_bucket_no_public_access",
-    "s3_bucket_secure_transport_policy",
+    "s3_bucket_kms_encryption",
+    # Resilience
+    "s3_bucket_object_versioning",                  # was s3_bucket_versioning_enabled (invalid)
     "s3_bucket_object_lock",
+    "s3_bucket_no_mfa_delete",
+    # Visibility
+    "s3_bucket_server_access_logging_enabled",
+    "s3_bucket_secure_transport_policy",
 ]
 
 NIST_CSF_MAPPING = {
-    "s3_bucket_public_access":                           ["PR.AC-3", "PR.DS-3", "DE.CM-7"],
-    "s3_bucket_acl_prohibited":                          ["PR.AC-3", "PR.DS-1"],
-    "s3_bucket_policy_no_allow_mixed_and_public_access": ["PR.AC-3", "PR.DS-5"],
-    "s3_bucket_default_encryption":                      ["PR.DS-1", "PR.DS-2"],
-    "s3_bucket_versioning_enabled":                      ["PR.IP-4", "RC.RP-1"],
-    "s3_bucket_server_access_logging_enabled":           ["DE.CM-7", "DE.AE-3", "RS.AN-1"],
-    "s3_bucket_no_public_access":                        ["PR.AC-3", "PR.DS-5"],
-    "s3_bucket_secure_transport_policy":                 ["PR.DS-2", "PR.PT-4"],
-    "s3_bucket_object_lock":                             ["PR.IP-4", "PR.DS-1"],
+    "s3_bucket_level_public_access_block":   ["PR.AC-3", "PR.DS-3", "DE.CM-7"],
+    "s3_account_level_public_access_blocks": ["PR.AC-3", "PR.DS-3", "DE.CM-7"],
+    "s3_bucket_public_access":               ["PR.AC-3", "PR.DS-5", "DE.CM-7"],
+    "s3_bucket_public_list_acl":             ["PR.AC-3", "PR.DS-5"],
+    "s3_bucket_public_write_acl":            ["PR.AC-3", "PR.DS-5"],
+    "s3_bucket_policy_public_write_access":  ["PR.AC-3", "PR.DS-5"],
+    "s3_bucket_acl_prohibited":              ["PR.AC-3", "PR.DS-1"],
+    "s3_bucket_default_encryption":          ["PR.DS-1", "PR.DS-2"],
+    "s3_bucket_kms_encryption":              ["PR.DS-1", "PR.DS-2"],
+    "s3_bucket_object_versioning":           ["PR.IP-4", "RC.RP-1"],
+    "s3_bucket_object_lock":                 ["PR.IP-4", "PR.DS-1"],
+    "s3_bucket_no_mfa_delete":               ["PR.IP-4", "PR.AC-5"],
+    "s3_bucket_server_access_logging_enabled": ["DE.CM-7", "DE.AE-3", "RS.AN-1"],
+    "s3_bucket_secure_transport_policy":     ["PR.DS-2", "PR.PT-4"],
 }
 
 
@@ -235,6 +249,14 @@ def run_s3_scan(assumed_session):
     env.pop("AWS_PROFILE", None)
     env.pop("AWS_DEFAULT_PROFILE", None)
 
+    # Clear any Prowler cache that may have accumulated in a warm Lambda container.
+    # Prowler writes to $HOME/.prowler/ on startup; with HOME=/tmp this persists
+    # across warm invocations of the same container.
+    for _cache in ["/tmp/.prowler", "/tmp/prowler"]:
+        if os.path.isdir(_cache):
+            shutil.rmtree(_cache, ignore_errors=True)
+            print(f"[{account_id}] Cleared Prowler cache: {_cache}")
+
     output_dir = tempfile.mkdtemp(prefix="s3sentry-")
     try:
         cmd = [
@@ -246,7 +268,8 @@ def run_s3_scan(assumed_session):
             "--output-modes", "json",
             "--output-directory", output_dir,
         ]
-        print(f"[{account_id}] Running Prowler CLI for {len(S3_CHECKS)} checks...")
+        # Log the exact check IDs being passed so CloudWatch shows any mismatches
+        print(f"[{account_id}] Running Prowler CLI with {len(S3_CHECKS)} checks: {S3_CHECKS}")
         result = subprocess.run(
             cmd, env=env, capture_output=True,
             text=True, encoding="utf-8", errors="replace",
@@ -258,12 +281,16 @@ def run_s3_scan(assumed_session):
         fatal = result.returncode not in (0, 1, 3) or not json_files
         if result.returncode not in (0, 3):
             print(f"[{account_id}] Prowler exited with code {result.returncode} — checking for output...")
+
+        # Always surface stderr — unknown check ID warnings and IAM permission
+        # errors appear here and were previously swallowed on exit code 1.
+        if result.stderr.strip():
+            print(f"[{account_id}] Prowler STDERR:\n{result.stderr[-3000:]}")
+
         if fatal:
             print(f"[{account_id}] Prowler failed fatally (code {result.returncode}, no JSON output).")
             if result.stdout.strip():
                 print(f"[{account_id}] STDOUT:\n{result.stdout[-2000:]}")
-            if result.stderr.strip():
-                print(f"[{account_id}] STDERR:\n{result.stderr[-2000:]}")
             return
 
         json_path = json_files[0]
