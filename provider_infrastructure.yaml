@@ -336,42 +336,16 @@ Resources:
                   - s3:PutObject
                 Resource: !Sub "arn:aws:s3:::${VaultBucketName}/*"
 
-  # -------------------------------------------------------------------------
-  # 8. Responder Lambda — ZIP-based Python (no Prowler dependency)
-  #    Placeholder inline code allows the stack to deploy before responder.py
-  #    is written. Replace via: aws lambda update-function-code --zip-file
-  # -------------------------------------------------------------------------
-  ResponderFunction:
-    Type: AWS::Lambda::Function
-    DependsOn: ResponderRole
-    Properties:
-      FunctionName: S3SentryResponder
-      Description: "Handles action button clicks from S3 Sentry dashboard emails (FIX / IGNORE / ROLLBACK)."
-      Runtime: python3.11
-      Handler: responder.handler
-      Role: !GetAtt ResponderRole.Arn
-      Timeout: 30
-      MemorySize: 256
-      Environment:
-        Variables:
-          DYNAMODB_TABLE: !Ref DynamoDBTableName
-          HMAC_KEY_PATH:  "/s3sentry/hmac_signing_key"
-          VAULT_BUCKET:   !Ref VaultBucketName
-      Code:
-        ZipFile: |
-          # Placeholder — deploy responder.py via update-function-code
-          import json
-          def handler(event, context):
-              return {
-                  "statusCode": 200,
-                  "headers": {"Content-Type": "text/html"},
-                  "body": "<h2>S3 Sentry Responder</h2><p>Deployment pending.</p>"
-              }
+  # ResponderFunction:  (removed — owned by deploy.ps1)
+  #   PackageType is an immutable CFN property. deploy.ps1 creates and updates
+  #   S3SentryResponder directly via aws lambda create/update-function-code,
+  #   which avoids CFN resource-replacement conflicts when the image changes.
+  #   IAM role (ResponderRole) and vault permissions remain CFN-managed above.
 
   ResponderLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${ResponderFunction}"
+      LogGroupName: "/aws/lambda/S3SentryResponder"
       RetentionInDays: 7
 
   # -------------------------------------------------------------------------

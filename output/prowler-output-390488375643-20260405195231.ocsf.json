@@ -1,0 +1,2281 @@
+[{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-cf-templates-1ofhm423nf552-us-east-1",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "cf-templates-1ofhm423nf552-us-east-1",
+            "uid": "arn:aws:s3:::cf-templates-1ofhm423nf552-us-east-1",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket cf-templates-1ofhm423nf552-us-east-1 is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket cf-templates-1ofhm423nf552-us-east-1 is not public."
+    },
+    "message": "S3 Bucket cf-templates-1ofhm423nf552-us-east-1 is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-console.wakim-works.com",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "console.wakim-works.com",
+            "uid": "arn:aws:s3:::console.wakim-works.com",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket console.wakim-works.com is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket console.wakim-works.com is not public."
+    },
+    "message": "S3 Bucket console.wakim-works.com is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-construction.conversions.lol",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "construction.conversions.lol",
+            "uid": "arn:aws:s3:::construction.conversions.lol",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket construction.conversions.lol is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket construction.conversions.lol is not public."
+    },
+    "message": "S3 Bucket construction.conversions.lol is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-costoptimizationtoolreportbucket",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "costoptimizationtoolreportbucket",
+            "uid": "arn:aws:s3:::costoptimizationtoolreportbucket",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket costoptimizationtoolreportbucket is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket costoptimizationtoolreportbucket is not public."
+    },
+    "message": "S3 Bucket costoptimizationtoolreportbucket is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-data-guardian-cloudtrail-bucket",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "data-guardian-cloudtrail-bucket",
+            "uid": "arn:aws:s3:::data-guardian-cloudtrail-bucket",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket data-guardian-cloudtrail-bucket is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket data-guardian-cloudtrail-bucket is not public."
+    },
+    "message": "S3 Bucket data-guardian-cloudtrail-bucket is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-jude.wakim-works.com",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "jude.wakim-works.com",
+            "uid": "arn:aws:s3:::jude.wakim-works.com",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket jude.wakim-works.com is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket jude.wakim-works.com is not public."
+    },
+    "message": "S3 Bucket jude.wakim-works.com is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-judewakim-s3-misconfig",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "judewakim-s3-misconfig",
+            "uid": "arn:aws:s3:::judewakim-s3-misconfig",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket judewakim-s3-misconfig has public access due to bucket policy.",
+    "compliance": {
+        "status": "Failure",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket judewakim-s3-misconfig has public access due to bucket policy."
+    },
+    "message": "S3 Bucket judewakim-s3-misconfig has public access due to bucket policy.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 2,
+    "status": "Failure",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-s3-sentry-vault-390488375643",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "s3-sentry-vault-390488375643",
+            "uid": "arn:aws:s3:::s3-sentry-vault-390488375643",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket s3-sentry-vault-390488375643 is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket s3-sentry-vault-390488375643 is not public."
+    },
+    "message": "S3 Bucket s3-sentry-vault-390488375643 is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-security-conformance-packs-390488375643-us-east-1",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "security-conformance-packs-390488375643-us-east-1",
+            "uid": "arn:aws:s3:::security-conformance-packs-390488375643-us-east-1",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket security-conformance-packs-390488375643-us-east-1 is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket security-conformance-packs-390488375643-us-east-1 is not public."
+    },
+    "message": "S3 Bucket security-conformance-packs-390488375643-us-east-1 is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-something-processed-related",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "something-processed-related",
+            "uid": "arn:aws:s3:::something-processed-related",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket something-processed-related is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket something-processed-related is not public."
+    },
+    "message": "S3 Bucket something-processed-related is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-something-uploads-related",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "something-uploads-related",
+            "uid": "arn:aws:s3:::something-uploads-related",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket something-uploads-related is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket something-uploads-related is not public."
+    },
+    "message": "S3 Bucket something-uploads-related is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-thumbnail-webpage",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "thumbnail-webpage",
+            "uid": "arn:aws:s3:::thumbnail-webpage",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket thumbnail-webpage is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket thumbnail-webpage is not public."
+    },
+    "message": "S3 Bucket thumbnail-webpage is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-wakim-works.com",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "wakim-works.com",
+            "uid": "arn:aws:s3:::wakim-works.com",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket wakim-works.com is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket wakim-works.com is not public."
+    },
+    "message": "S3 Bucket wakim-works.com is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-wakimwealth.com",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "wakimwealth.com",
+            "uid": "arn:aws:s3:::wakimwealth.com",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket wakimwealth.com has public access due to bucket policy.",
+    "compliance": {
+        "status": "Failure",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket wakimwealth.com has public access due to bucket policy."
+    },
+    "message": "S3 Bucket wakimwealth.com has public access due to bucket policy.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 2,
+    "status": "Failure",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-wakimworks-lambda-code",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "wakimworks-lambda-code",
+            "uid": "arn:aws:s3:::wakimworks-lambda-code",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket wakimworks-lambda-code is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket wakimworks-lambda-code is not public."
+    },
+    "message": "S3 Bucket wakimworks-lambda-code is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-wakimworks-public-templates",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "wakimworks-public-templates",
+            "uid": "arn:aws:s3:::wakimworks-public-templates",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket wakimworks-public-templates has public access due to bucket policy.",
+    "compliance": {
+        "status": "Failure",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket wakimworks-public-templates has public access due to bucket policy."
+    },
+    "message": "S3 Bucket wakimworks-public-templates has public access due to bucket policy.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 2,
+    "status": "Failure",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-wakimworks-s3scanner-lambda-code",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "wakimworks-s3scanner-lambda-code",
+            "uid": "arn:aws:s3:::wakimworks-s3scanner-lambda-code",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket wakimworks-s3scanner-lambda-code is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket wakimworks-s3scanner-lambda-code is not public."
+    },
+    "message": "S3 Bucket wakimworks-s3scanner-lambda-code is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-wakimworks.com",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "wakimworks.com",
+            "uid": "arn:aws:s3:::wakimworks.com",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket wakimworks.com is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket wakimworks.com is not public."
+    },
+    "message": "S3 Bucket wakimworks.com is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-www.wakimwealth.com",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "www.wakimwealth.com",
+            "uid": "arn:aws:s3:::www.wakimwealth.com",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket www.wakimwealth.com has public access due to bucket policy.",
+    "compliance": {
+        "status": "Failure",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket www.wakimwealth.com has public access due to bucket policy."
+    },
+    "message": "S3 Bucket www.wakimwealth.com has public access due to bucket policy.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 2,
+    "status": "Failure",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+},{
+    "finding": {
+        "title": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "desc": "Ensure there are no S3 buckets open to Everyone or Any AWS user.",
+        "supporting_data": {
+            "Risk": "Even if you enable all possible bucket ACL options available in the Amazon S3 console the ACL alone does not allow everyone to download objects from your bucket. Depending on which option you select any user could perform some actions.",
+            "Notes": ""
+        },
+        "remediation": {
+            "kb_articles": [
+                "https://docs.prowler.com/checks/aws/networking-policies/s3-bucket-should-have-public-access-blocks-defaults-to-false-if-the-public-access-block-is-not-attached#terraform",
+                "aws s3api put-public-access-block --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true --bucket <bucket_name>",
+                "https://github.com/cloudmatos/matos/tree/master/remediations/aws/s3/s3/block-public-access",
+                "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+            ],
+            "desc": "You can enable block public access settings only for access points, buckets and AWS accounts. Amazon S3 does not support block public access settings on a per-object basis. When you apply block public access settings to an account, the settings apply to all AWS Regions globally. The settings might not take effect in all Regions immediately or simultaneously, but they eventually propagate to all Regions."
+        },
+        "types": [
+            "Data Protection"
+        ],
+        "src_url": "",
+        "uid": "prowler-aws-s3_bucket_public_access-390488375643-us-east-1-www.wakimworks.com",
+        "related_events": []
+    },
+    "resources": [
+        {
+            "group": {
+                "name": "s3"
+            },
+            "region": "us-east-1",
+            "name": "www.wakimworks.com",
+            "uid": "arn:aws:s3:::www.wakimworks.com",
+            "labels": [],
+            "type": "AwsS3Bucket",
+            "details": ""
+        }
+    ],
+    "status_detail": "S3 Bucket www.wakimworks.com is not public.",
+    "compliance": {
+        "status": "Success",
+        "requirements": [
+            "AWS-Account-Security-Onboarding: S3 Block Public Access",
+            "AWS-Foundational-Security-Best-Practices: s3",
+            "AWS-Foundational-Technical-Review: S3-001",
+            "AWS-Well-Architected-Framework-Security-Pillar: SEC03-BP07",
+            "CISA: your-systems-3, your-data-2",
+            "ENS-RD2022: op.exp.8.r4.aws.ct.2",
+            "FedRAMP-Low-Revision-4: ac-3, ac-17, cm-2, sc-7",
+            "FedRamp-Moderate-Revision-4: ac-3, ac-4, ac-6, ac-17-1, ac-21-b, cm-2, sc-4, sc-7-3, sc-7",
+            "FFIEC: d3-pc-im-b-1",
+            "GxP-21-CFR-Part-11: 11.10-c, 11.10-d, 11.10-g, 11.10-k",
+            "HIPAA: 164_308_a_1_ii_b, 164_308_a_3_i, 164_312_a_1, 164_312_a_2_i",
+            "MITRE-ATTACK: T1530",
+            "NIST-800-171-Revision-2: 3_1_1, 3_1_2, 3_1_3, 3_3_8, 3_4_6, 3_13_2, 3_13_5",
+            "NIST-800-53-Revision-4: ac_3, ac_4, ac_6, ac_21, sc_7_3, sc_7",
+            "NIST-800-53-Revision-5: ac_2_6, ac_3, ac_3_7, ac_4_21, ac_6, ac_17_b, ac_17_1, ac_17_4_a, ac_17_9, ac_17_10, cm_6_a, cm_9_b, mp_2, sc_7_2, sc_7_3, sc_7_7, sc_7_9_a, sc_7_11, sc_7_12, sc_7_16, sc_7_20, sc_7_21, sc_7_24_b, sc_7_25, sc_7_26, sc_7_27, sc_7_28, sc_7_a, sc_7_b, sc_7_c, sc_25",
+            "NIST-CSF-1.1: ac_3, ac_5, ds_5, ip_8, pt_3",
+            "PCI-3.2.1: s3",
+            "RBI-Cyber-Security-Framework: annex_i_1_3",
+            "SOC2: cc_6_1"
+        ],
+        "status_detail": "S3 Bucket www.wakimworks.com is not public."
+    },
+    "message": "S3 Bucket www.wakimworks.com is not public.",
+    "severity_id": 5,
+    "severity": "Critical",
+    "cloud": {
+        "account": {
+            "name": "Jude Wakim",
+            "uid": "390488375643"
+        },
+        "region": "us-east-1",
+        "org": {
+            "uid": "o-tol302nvsv",
+            "name": "o-tol302nvsv"
+        },
+        "provider": "aws",
+        "project_uid": ""
+    },
+    "time": "2026-04-05 19:52:31.567831",
+    "metadata": {
+        "original_time": "2026-04-05T19:52:31.567831",
+        "profiles": [
+            "default"
+        ],
+        "product": {
+            "language": "en",
+            "name": "Prowler",
+            "version": "3.16.17",
+            "vendor_name": "Prowler/ProwlerPro",
+            "feature": {
+                "name": "s3_bucket_public_access",
+                "uid": "s3_bucket_public_access",
+                "version": "3.16.17"
+            }
+        },
+        "version": "1.0.0-rc.3"
+    },
+    "state_id": 0,
+    "state": "New",
+    "status_id": 1,
+    "status": "Success",
+    "type_uid": 200101,
+    "type_name": "Security Finding: Create",
+    "impact_id": 0,
+    "impact": "Unknown",
+    "confidence_id": 0,
+    "confidence": "Unknown",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2001,
+    "class_name": "Security Finding"
+}]
