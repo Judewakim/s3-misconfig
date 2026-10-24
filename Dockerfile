@@ -39,6 +39,7 @@ RUN pip install --no-cache-dir \
 COPY lambda_handler.py ${LAMBDA_TASK_ROOT}/
 COPY token_utils.py    ${LAMBDA_TASK_ROOT}/
 COPY responder.py      ${LAMBDA_TASK_ROOT}/
+COPY remediation/      ${LAMBDA_TASK_ROOT}/remediation/
 # Live-demo entry points (same image, selected via ImageConfig.Command)
 COPY demo/demo_api.py     ${LAMBDA_TASK_ROOT}/
 COPY demo/demo_scanner.py ${LAMBDA_TASK_ROOT}/

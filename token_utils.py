@@ -195,6 +195,7 @@ def validate_action_token(
     token: str,
     secret: str,
     current_scan_sequence: int,
+    check_sequence: bool = True,
 ) -> dict:
     """
     Validate a token and return its decoded payload.
@@ -260,6 +261,10 @@ def validate_action_token(
         )
 
     # --- Step 3: Scan sequence freshness check ---
+    # Skipped for ROLLBACK and LOG links: a daily scan must not void the 48 h
+    # undo window or the log link.
+    if not check_sequence:
+        return payload
     token_sequence = payload.get("scan_sequence", -1)
     if token_sequence != current_scan_sequence:
         raise TokenSequenceError(

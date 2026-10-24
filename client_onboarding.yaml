@@ -57,7 +57,9 @@ Resources:
             Effect: Allow
             Principal:
               AWS: !Sub "arn:aws:iam::${ProviderAccountId}:root"
-            Action: sts:AssumeRole
+            # SetSourceIdentity lets your CloudTrail show which person approved
+            # each change S3 Sentry makes.
+            Action: [sts:AssumeRole, sts:SetSourceIdentity]
             Condition:
               StringEquals:
                 sts:ExternalId: !Ref ExternalId

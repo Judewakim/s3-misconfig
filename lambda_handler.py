@@ -25,6 +25,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
+import remediation
 import token_utils
 
 import boto3
@@ -129,6 +130,9 @@ def get_all_active_tenants():
                 "RoleArn":    role_arn,
                 "ExternalId": ext_id,
                 "Email":      item.get("Email"),
+                # False when the customer deployed the role read-only
+                # (EnableRemediation=false); missing means remediation allowed.
+                "RemediationEnabled": item.get("RemediationEnabled", True) is not False,
             })
 
         last = response.get("LastEvaluatedKey")
@@ -334,6 +338,41 @@ def summarize(raw_findings):
     }
 
 
+def load_suppressions(account_id):
+    """(check_id, bucket) pairs the owner chose to ignore via the Responder."""
+    table = boto3.resource("dynamodb").Table(DYNAMODB_TABLE)
+    out, kwargs = set(), {"KeyConditionExpression": Key("PK").eq(f"ACC#{account_id}") & Key("SK").begins_with("SUPPRESS#")}
+    while True:
+        resp = table.query(**kwargs)
+        for it in resp.get("Items", []):
+            out.add((it.get("CheckID", ""), it.get("ResourceID", "")))
+        if "LastEvaluatedKey" not in resp:
+            return out
+        kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+
+
+def apply_suppressions(scan_summary, suppressed):
+    """Drop ignored findings from what gets emailed. Findings are still stored
+    in DynamoDB, so un-ignoring brings them straight back."""
+    if not suppressed:
+        return {**scan_summary, "ignored_count": 0}
+    kept = [f for f in scan_summary["fail_findings"]
+            if (f.get("CheckID", ""), f.get("ResourceId", "")) not in suppressed]
+    sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for f in kept:
+        k = (f.get("Severity") or "").lower()
+        if k in sev:
+            sev[k] += 1
+    return {
+        **scan_summary,
+        "fail_findings": kept,
+        "fail_count": len(kept),
+        "severity_breakdown": sev,
+        "buckets_affected": len({f.get("ResourceId", "") for f in kept if is_bucket_finding(f)}),
+        "ignored_count": len(scan_summary["fail_findings"]) - len(kept),
+    }
+
+
 def run_s3_scan(assumed_session):
     """Scan a paying tenant and persist findings under ACC#<id>."""
     scanned = run_prowler(assumed_session)
@@ -460,7 +499,7 @@ _SEV_COLOR = {
 
 
 def _send_dashboard_email(account_id, scan_summary, recipient_email,
-                          scan_sequence, signing_key):
+                          scan_sequence, signing_key, remediation_enabled=True):
     """
     Build and send the per-tenant SES HTML dashboard email.
 
@@ -510,12 +549,20 @@ def _send_dashboard_email(account_id, scan_summary, recipient_email,
         nist        = NIST_CSF_MAPPING.get(check_id, [])
         nist_label  = html.escape(nist[0] if nist else "—")
 
-        fix_url    = _build_action_url(check_id, resource_id, "FIX",
+        raw_resource = f.get("ResourceId", "")
+        ignore_url = _build_action_url(check_id, raw_resource, "IGNORE",
                                        account_id, recipient_email,
                                        scan_sequence, signing_key, 24)
-        ignore_url = _build_action_url(check_id, resource_id, "IGNORE",
-                                       account_id, recipient_email,
-                                       scan_sequence, signing_key, 24)
+        if remediation_enabled and remediation.for_check(check_id):
+            fix_url = _build_action_url(check_id, raw_resource, "FIX",
+                                        account_id, recipient_email,
+                                        scan_sequence, signing_key, 24)
+            fix_html = (f'<a href="{fix_url}" style="display:inline-block;padding:6px 14px;background:#2b2b2c;'
+                        f'color:#ffffff;text-decoration:none;border-radius:999px;font-size:12px;'
+                        f'font-weight:bold;margin-right:6px;">Review fix</a>')
+        else:
+            fix_html = ('<span style="display:inline-block;padding:6px 0;font-size:12px;color:#6e6e70;'
+                        'margin-right:10px;">Manual fix</span>')
 
         finding_rows.append(
             f'<tr style="border-bottom:1px solid #f0f0f0;">'
@@ -523,12 +570,9 @@ def _send_dashboard_email(account_id, scan_summary, recipient_email,
             f'<td style="padding:10px 16px;font-size:12px;font-weight:bold;color:{sev_color};">{severity}</td>'
             f'<td style="padding:10px 16px;font-size:13px;color:#475569;">{issue}</td>'
             f'<td style="padding:10px 16px;font-size:12px;color:#94a3b8;">{nist_label}</td>'
-            f'<td style="padding:10px 16px;white-space:nowrap;">'
-            f'<a href="{fix_url}" style="display:inline-block;padding:6px 14px;background:#16a34a;'
-            f'color:#ffffff;text-decoration:none;border-radius:4px;font-size:12px;'
-            f'font-weight:bold;margin-right:6px;">Fix Now</a>'
+            f'<td style="padding:10px 16px;white-space:nowrap;">{fix_html}'
             f'<a href="{ignore_url}" style="display:inline-block;padding:6px 14px;'
-            f'background:#e2e8f0;color:#475569;text-decoration:none;border-radius:4px;'
+            f'background:#eef0ec;color:#475569;text-decoration:none;border-radius:999px;'
             f'font-size:12px;">Ignore</a>'
             f'</td></tr>'
         )
@@ -540,6 +584,11 @@ def _send_dashboard_email(account_id, scan_summary, recipient_email,
 
     safe_account   = html.escape(account_id)
     safe_recipient = html.escape(recipient_email)
+    ignored = scan_summary.get("ignored_count", 0)
+    ignored_line = (f"{ignored} ignored finding{'s' if ignored != 1 else ''} not shown.<br>" if ignored else "")
+    log_url = f"{RESPONDER_URL}?token=" + token_utils.generate_action_token({
+        "account_id": account_id, "check_id": "*", "resource_id": "*", "action": "LOG",
+        "recipient_email": recipient_email, "scan_sequence": scan_sequence}, signing_key, 24 * 7)
 
     html_body = f"""<!DOCTYPE html>
 <html lang="en">
@@ -645,7 +694,8 @@ def _send_dashboard_email(account_id, scan_summary, recipient_email,
     <td colspan="5" bgcolor="#f8fafc"
         style="padding:20px 32px;border-top:1px solid #e2e8f0;">
       <span style="font-size:12px;color:#94a3b8;line-height:1.6;">
-        Action links expire in 24 hours. Sent to {safe_recipient}.<br>
+        Action links expire in 24 hours or when the next scan runs. Sent to {safe_recipient}.<br>
+        {ignored_line}<a href="{log_url}" style="color:#4b7a22;">View your action log</a> (every fix, undo and ignore; link valid 7 days).<br>
         S3 Sentry scans your account daily. Next scan: tomorrow at 02:00 UTC.
       </span>
     </td>
@@ -756,12 +806,14 @@ def handler(event, context):
             print(f"[{account_id}] Scan complete.")
 
             if scan_summary:
+                scan_summary = apply_suppressions(scan_summary, load_suppressions(account_id))
                 signing_key = token_utils.get_signing_key(HMAC_KEY_PATH)
                 _send_dashboard_email(
                     account_id, scan_summary,
                     recipient_email=tenant.get("Email"),
                     scan_sequence=scan_sequence,
                     signing_key=signing_key,
+                    remediation_enabled=tenant.get("RemediationEnabled", True),
                 )
                 results.append({
                     "accountId":         account_id,
