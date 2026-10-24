@@ -34,7 +34,7 @@ SECRET = "deadbeefcafe1234deadbeefcafe1234deadbeefcafe1234deadbeefcafe1234"
 CURRENT_SEQUENCE = 7
 
 SAMPLE_PAYLOAD = {
-    "account_id":      "928459458650",
+    "account_id":      "111122223333",
     "check_id":        "s3_bucket_default_encryption",
     "resource_id":     "my-prod-bucket",
     "action":          "FIX",

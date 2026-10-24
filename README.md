@@ -87,11 +87,11 @@ temporary workaround (the orchestrator role did not exist yet). Phase 3 resolved
 ```yaml
 # Phase 2 (workaround):
 Principal:
-  AWS: arn:aws:iam::390488375643:root
+  AWS: arn:aws:iam::<PROVIDER_ACCOUNT_ID>:root
 
 # Phase 3 (least-privilege — current):
 Principal:
-  AWS: arn:aws:iam::390488375643:role/S3SentryOrchestratorRole
+  AWS: arn:aws:iam::<PROVIDER_ACCOUNT_ID>:role/S3SentryOrchestratorRole
 ```
 
 The Lambda execution role (`S3SentryOrchestratorRole`) is scoped to the minimum
@@ -116,7 +116,7 @@ All provider-account resources are deployed via a single CloudFormation stack
 After each tenant scan, a severity-breakdown email is published to the SNS topic:
 
 ```
-Subject: ⚠️ S3Sentry Alert: 4 Findings for acc#928459458650
+Subject: ⚠️ S3Sentry Alert: 4 Findings for acc#111122223333
 
 The daily scan is complete. We found 4 FAIL findings across 2 bucket(s).
 

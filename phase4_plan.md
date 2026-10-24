@@ -36,7 +36,7 @@ Fix: Removed `HMACSigningKey` from CFN. `deploy.ps1` Step 1 owns the SSM paramet
 
 **Cross-account trust policy role ID vs ARN**
 After deleting and recreating the provider stack, `S3SentryOrchestratorRole` was assigned a new internal role ID (`AROA...`). The client account's trust policy stored the old role ID (not the ARN), so every `sts:AssumeRole` call returned `AccessDenied`.
-Fix: Updated the trust policy in account `928459458650` to use the ARN `arn:aws:iam::390488375643:role/S3SentryOrchestratorRole` instead of the orphaned role ID. **If the provider stack is ever deleted and recreated, this trust policy must be updated again.**
+Fix: Updated the trust policy in account `111122223333` to use the ARN `arn:aws:iam::<PROVIDER_ACCOUNT_ID>:role/S3SentryOrchestratorRole` instead of the orphaned role ID. **If the provider stack is ever deleted and recreated, this trust policy must be updated again.**
 
 **PowerShell + AWS CLI JSON quoting (Windows)**
 - `Set-Content -Encoding UTF8` writes a UTF-8 BOM. AWS CLI JSON parser rejects BOM-prefixed files with "Invalid JSON received".
@@ -113,7 +113,7 @@ Generates and validates single-use signed tokens embedded in email action button
 **Payload fields:**
 ```json
 {
-  "account_id": "928459458650",
+  "account_id": "111122223333",
   "check_id":   "s3_bucket_public_access",
   "resource_id": "my-prod-bucket",
   "action":     "FIX",
@@ -184,7 +184,7 @@ Replace `_publish_summary()` SNS plain-text with `_send_dashboard_email()` SES H
 
 **CFN `UPDATE_ROLLBACK_FAILED`**: When CFN failed to update `ResponderFunction` (Zip→Image), the rollback also failed (CFN tried to restore it to Zip but the actual function is Image-type). Stack was stuck and rejected all new deploys. Fix: `aws cloudformation continue-update-rollback --resources-to-skip ResponderFunction`. `deploy.ps1` now auto-detects this state and runs the recovery command before attempting a deploy.
 
-**`S3SentryResponderRole` missing `s3:PutObject` on vault bucket**: The `VaultBucketName` CFN parameter defaulted to `"s3sentry-vault"` but the actual bucket is `"s3sentry-vault-390488375643"`. Fix: pass `VaultBucketName=$S3_VAULT_BUCKET` in `--parameter-overrides` in `deploy.ps1` Step 6.
+**`S3SentryResponderRole` missing `s3:PutObject` on vault bucket**: The `VaultBucketName` CFN parameter defaulted to `"s3sentry-vault"` but the actual bucket is `"s3sentry-vault-<PROVIDER_ACCOUNT_ID>"`. Fix: pass `VaultBucketName=$S3_VAULT_BUCKET` in `--parameter-overrides` in `deploy.ps1` Step 6.
 
 ### Current Blocker — Sprint 2 not yet fully verified
 
