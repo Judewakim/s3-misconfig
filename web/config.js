@@ -4,5 +4,5 @@
  * Set it to the DemoApiUrl output of demo/demo_infrastructure.yaml.
  */
 window.S3SENTRY_CONFIG = {
-  apiUrl: ""
+  apiUrl: "https://zbzrnbesvz4kih2h3qunmwj6ry0bolrq.lambda-url.us-east-1.on.aws"
 };

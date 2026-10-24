@@ -247,6 +247,28 @@ main > section + section { border-top: 1px solid var(--line); }
 .perm p { font-size: 15px; }
 .perm p + p { margin-top: 8px; }
 
+/* --------------------------------------------------------- coverage */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-lg); }
+.checks { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 720px; }
+.checks th, .checks td { padding: 14px 18px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.checks tbody tr:last-child th, .checks tbody tr:last-child td { border-bottom: 0; }
+.checks thead th { font-size: 13px; font-weight: 600; color: var(--muted); background: var(--wash); }
+.checks tbody th { font-weight: 500; color: var(--ink); }
+.checks td { color: var(--graphite); }
+.checks td:last-child { color: var(--muted); font-size: 14px; }
+.checks td[data-v] { white-space: nowrap; font-weight: 500; }
+.checks td[data-v="built"] { color: var(--green-ink); }
+.checks td[data-v="guidance-only"], .checks td[data-v="not-possible"] { color: var(--muted); }
+.scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 40px; max-width: 900px; }
+.scope-grid h3 { margin-bottom: 10px; }
+.scope-grid ul { margin: 0; padding-left: 20px; color: var(--graphite); }
+.scope-grid li + li { margin-top: 4px; }
+.scope-grid p { color: var(--graphite); }
+
+/* ---------------------------------------------------------- contact */
+.contact { display: grid; justify-items: start; gap: 16px; }
+.contact p { color: var(--graphite); font-size: 18px; max-width: 56ch; }
+
 /* ------------------------------------------------------------ built */
 .built-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; margin-bottom: 40px; }
 .built-grid > div { padding-top: 20px; border-top: 2px solid var(--green); }
@@ -258,6 +280,7 @@ main > section + section { border-top: 1px solid var(--line); }
 @media (max-width: 940px) {
   .hero { grid-template-columns: 1fr; gap: 48px; }
   .built-grid { grid-template-columns: 1fr; gap: 28px; }
+  .scope-grid { grid-template-columns: 1fr; gap: 28px; }
 }
 @media (max-width: 560px) {
   body { font-size: 16px; }
@@ -272,6 +295,16 @@ main > section + section { border-top: 1px solid var(--line); }
   .bucket .pip { width: 100%; height: auto; aspect-ratio: 1; }
   .bucket { grid-template-columns: minmax(0, 1fr) 68px; }
   .finding { grid-template-columns: 1fr; gap: 10px; }
+  .table-wrap { overflow: visible; }
+  .checks { min-width: 0; }
+  .checks thead { display: none; }
+  .checks tr { display: grid; gap: 4px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .checks tbody tr:last-child { border-bottom: 0; }
+  .checks th, .checks td { padding: 0; border: 0; }
+  .checks td { display: flex; gap: 8px; font-size: 14px; }
+  .checks td::before { content: attr(data-label) ":"; color: var(--muted); min-width: 92px; }
+  .checks td:empty, .checks td[data-label="What to know"]:empty { display: none; }
+  .checks td[data-label="What to know"]::before { content: none; }
   .diff { grid-template-columns: 1fr; }
   .step { grid-template-columns: 1fr; gap: 12px; padding: 18px; }
   #account-id { width: 100%; }

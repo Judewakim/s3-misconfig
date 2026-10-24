@@ -127,6 +127,53 @@
     </ol>
   </section>
 
+
+  <section class="coverage" id="coverage" aria-labelledby="coverage-title">
+    <div class="section-intro">
+      <h2 id="coverage-title">What the scan covers</h2>
+      <p>S3 bucket and account-level S3 configuration in one AWS account: 14 checks from the open-source Prowler engine, each mapped to NIST CSF 1.1. Every check is scanned today. One-click fixes are being built in stages, and automatic undo isn't working yet for any of them.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="checks">
+        <thead>
+          <tr><th scope="col">Check</th><th scope="col">One-click fix</th><th scope="col">Can be undone</th><th scope="col">What to know</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Bucket-level Block Public Access</th><td data-label="One-click fix" data-v="built">Built, in testing</td><td data-label="Undo">Full</td><td data-label="What to know"></td></tr>
+          <tr><th scope="row">Account-level Block Public Access</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Applies to every bucket in the account.</td></tr>
+          <tr><th scope="row">Bucket is publicly accessible</th><td data-label="One-click fix" data-v="built">Built, in testing</td><td data-label="Undo">Full</td><td data-label="What to know">Fixed by turning on Block Public Access.</td></tr>
+          <tr><th scope="row">ACL allows public listing</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know"></td></tr>
+          <tr><th scope="row">ACL allows public writes</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know"></td></tr>
+          <tr><th scope="row">Policy allows public writes</th><td data-label="One-click fix" data-v="guidance-only">Guidance only</td><td data-label="Undo">Not applicable</td><td data-label="What to know">Policy edits need a person to review them.</td></tr>
+          <tr><th scope="row">ACLs disabled (owner enforced)</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Can break apps that still rely on ACLs.</td></tr>
+          <tr><th scope="row">Default encryption</th><td data-label="One-click fix" data-v="built">Built, in testing</td><td data-label="Undo">Full</td><td data-label="What to know">Existing objects stay as they are.</td></tr>
+          <tr><th scope="row">Encrypted with a KMS key</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Needs a key you choose; adds KMS cost.</td></tr>
+          <tr><th scope="row">Versioning</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Partial</td><td data-label="What to know">AWS lets you suspend versioning, never fully turn it off.</td></tr>
+          <tr><th scope="row">Object Lock</th><td data-label="One-click fix" data-v="guidance-only">Guidance only</td><td data-label="Undo">None</td><td data-label="What to know">AWS can't turn Object Lock off once it's on.</td></tr>
+          <tr><th scope="row">MFA Delete</th><td data-label="One-click fix" data-v="not-possible">Not possible</td><td data-label="Undo">Not applicable</td><td data-label="What to know">Only the account's root user can enable it.</td></tr>
+          <tr><th scope="row">Server access logging</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Needs a log bucket; adds storage cost.</td></tr>
+          <tr><th scope="row">Policy requires HTTPS</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Blocks any client still using plain HTTP.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="scope-grid">
+      <div>
+        <h3>Not covered yet</h3>
+        <ul>
+          <li>What's inside your files, such as personal or health data</li>
+          <li>IAM users, roles and access keys</li>
+          <li>Other AWS services: EC2, RDS, Lambda, CloudTrail and the rest</li>
+          <li>Threat detection on live traffic</li>
+          <li>Other clouds</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Not a compliance audit</h3>
+        <p>Findings map to NIST CSF controls to help you prioritize. They aren't a HIPAA, PCI DSS or SOC 2 assessment.</p>
+      </div>
+    </div>
+  </section>
+
   <section class="built" aria-labelledby="built-title">
     <div class="section-intro">
       <h2 id="built-title">How it works</h2>
@@ -146,6 +193,11 @@
       </div>
     </div>
     <p class="stack">Python, AWS Lambda (container image), EventBridge, DynamoDB, STS, SES, SSM Parameter Store, CloudFormation, Prowler.</p>
+  </section>
+  <section class="contact" aria-labelledby="contact-title">
+    <h2 id="contact-title">Want this watching your buckets?</h2>
+    <p>S3 Sentry is in private testing. Email me to get early access for your company's AWS accounts.</p>
+    <a class="btn primary" href="mailto:judewakim@wakimworks.com?subject=S3%20Sentry%20early%20access">Request early access</a>
   </section>
 </main>
 
