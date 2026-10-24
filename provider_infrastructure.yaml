@@ -198,7 +198,7 @@ Resources:
   # -------------------------------------------------------------------------
   OrchestratorFunction:
     Type: AWS::Lambda::Function
-    DependsOn: OrchestratorRole
+
     Properties:
       FunctionName: S3SentryOrchestrator
       Description: "Scans all S3 Sentry tenants on a schedule using Prowler."

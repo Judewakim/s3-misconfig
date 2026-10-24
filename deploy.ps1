@@ -30,7 +30,7 @@
 # ---------------------------------------------------------------------------
 # Configuration -- edit these values before first run
 # ---------------------------------------------------------------------------
-$ACCOUNT_ID       = "390488375643"
+$ACCOUNT_ID       = (aws sts get-caller-identity --query Account --output text)  # provider account = the one you are logged into
 $REGION           = "us-east-1"
 $ECR_REPO_NAME    = "s3sentry-repo"            # match the name you created in ECR
 $STACK_NAME       = "s3sentry-provider"
@@ -405,6 +405,17 @@ if (-not $urlAlreadyExists) {
         --region $REGION | Out-Null
     Assert-Success "add-permission AllowPublicURL"
 
+    # Since Oct 2025, AuthType NONE URLs ALSO need lambda:InvokeFunction
+    # (scoped to calls that arrive via the URL), or every request returns 403.
+    aws lambda add-permission `
+        --function-name S3SentryResponder `
+        --statement-id AllowPublicURLInvoke `
+        --action lambda:InvokeFunction `
+        --principal "*" `
+        --invoked-via-function-url `
+        --region $REGION | Out-Null
+    Assert-Success "add-permission AllowPublicURLInvoke"
+
     # Read the URL we just created
     $RESPONDER_URL = aws lambda get-function-url-config `
         --function-name S3SentryResponder `
@@ -422,6 +433,13 @@ if (-not $urlAlreadyExists) {
         --action lambda:InvokeFunctionUrl `
         --principal "*" `
         --function-url-auth-type NONE `
+        --region $REGION) 2>&1
+    $null = (aws lambda add-permission `
+        --function-name S3SentryResponder `
+        --statement-id AllowPublicURLInvoke `
+        --action lambda:InvokeFunction `
+        --principal "*" `
+        --invoked-via-function-url `
         --region $REGION) 2>&1
     # exit code 1 = statement already exists -- that is fine
 }
