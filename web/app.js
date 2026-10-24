@@ -177,7 +177,7 @@
           "Customers can fix this with one click from their scan email. The live demo is read-only, so it can't change anything in your account."));
         body.appendChild(actions);
       } else if (current.sample && preview) {
-        var btn = el("button", "btn small", "Preview the fix");
+        var btn = el("button", "btn ghost small", "Preview the fix");
         btn.type = "button";
         btn.setAttribute("aria-expanded", "false");
         var panel = fixPanel(preview, f.resource);
@@ -210,7 +210,7 @@
     grid.appendChild(b);
     wrap.appendChild(grid);
     wrap.appendChild(el("p", "fine",
-      "In production this runs only after the owner confirms a signed, single-use link from the scan email, and Rollback restores the saved copy."));
+      "In the full version this runs only after the bucket owner confirms a signed, single-use link from the scan email. The saved copy is kept so the change can be reversed."));
     return wrap;
   }
 
