@@ -82,6 +82,8 @@ Resources:
                   - s3:GetBucketPolicy
                   - s3:GetBucketPolicyStatus
                   - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetBucketTagging
                   - s3:GetEncryptionConfiguration
                   - s3:GetBucketVersioning
                   - s3:GetBucketObjectLockConfiguration
@@ -91,6 +93,17 @@ Resources:
                   - s3:GetBucketCORS
                   - s3:GetReplicationConfiguration
                 Resource: "arn:aws:s3:::*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+              # Account-level settings have no bucket ARN, so they need "*".
+              - Sid: S3AccountLevelRead
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetAccountPublicAccessBlock
+                Resource: "*"
                 Condition:
                   Bool:
                     aws:SecureTransport: "true"
