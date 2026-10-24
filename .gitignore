@@ -229,3 +229,9 @@ dashboard/*.bak
 
 #misc
 quickNotes.txt
+# Local onboarding state (contains a tenant ExternalId)
+.pending_tenant
+
+# Scan output -- never commit real findings
+output/
+out.json

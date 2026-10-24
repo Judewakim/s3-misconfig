@@ -10,6 +10,7 @@ Routes:
 """
 
 import base64
+import html
 import json
 import logging
 import os
@@ -134,9 +135,17 @@ def _page(body_html: str, title: str = "S3 Sentry") -> str:
 def render_confirmation_page(
     token: str, check_id: str, resource_id: str, account_id: str, action: str
 ) -> str:
+    # Every field below comes from an UNVERIFIED token (signature is only
+    # checked on POST), so anyone can craft a link with arbitrary values.
+    # Escape all of them before they touch HTML to prevent reflected XSS.
     summary = SAFETY_SUMMARIES.get(check_id)
     if not summary:
-        return render_error_page(f"Unsupported security check: <code>{check_id}</code>", 422)
+        return render_error_page(f"Unsupported security check: <code>{html.escape(check_id)}</code>", 422)
+    if action not in ("FIX", "IGNORE", "ROLLBACK"):
+        return render_error_page("Unknown action.", 400)
+    token, resource_id, account_id = (
+        html.escape(v, quote=True) for v in (token, resource_id, account_id)
+    )
 
     badge_color   = summary["severity_color"]
     severity      = summary["severity"]
@@ -163,7 +172,7 @@ def render_confirmation_page(
     <form method="POST">
       <input type="hidden" name="token" value="{token}">
       <div class="actions">
-        <button type="button" class="btn btn-cancel" onclick="window.close()">Cancel</button>
+        <span class="btn btn-cancel" style="text-align:center">Close tab to cancel</span>
         <button type="submit" class="btn btn-confirm" style="background:{confirm_color}">
           Confirm {action}
         </button>
@@ -175,6 +184,7 @@ def render_confirmation_page(
 
 
 def render_success_page(action: str, resource_id: str) -> str:
+    action, resource_id = html.escape(action), html.escape(resource_id)
     dry_label = " (Dry Run — no real changes made)" if DRY_RUN else ""
     body = f"""
 <div class="card">
@@ -209,7 +219,16 @@ def render_error_page(message: str, code: int = 400) -> str:
 def http_response(status: int, html: str) -> dict:
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "text/html; charset=utf-8"},
+        "headers": {
+            "Content-Type": "text/html; charset=utf-8",
+            # Inline styles only; no JavaScript at all.
+            "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; "
+                                       "form-action 'self'; "
+                                       "frame-ancestors 'none'; base-uri 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+            "Cache-Control": "no-store",
+        },
         "body": html,
     }
 
@@ -444,7 +463,7 @@ def handle_post(token: str) -> dict:
             ),
         )
     except TokenError as exc:
-        return http_response(400, render_error_page(f"Token error: {exc}", 400))
+        return http_response(400, render_error_page(f"Token error: {html.escape(str(exc))}", 400))
 
     jti           = payload["jti"]
     check_id      = payload["check_id"]
@@ -477,7 +496,7 @@ def handle_post(token: str) -> dict:
     # ── Route by action ───────────────────────────────────────────────────────
     HandlerClass = HANDLERS.get(check_id)
     if not HandlerClass:
-        return http_response(422, render_error_page(f"Unsupported check: <code>{check_id}</code>", 422))
+        return http_response(422, render_error_page(f"Unsupported check: <code>{html.escape(check_id)}</code>", 422))
 
     if action == "IGNORE":
         _write_suppress_item(account_id, check_id, resource_id, source_identity, jti)
@@ -496,7 +515,7 @@ def handle_post(token: str) -> dict:
     elif action == "ROLLBACK":
         after_state = h.apply_rollback(cross_s3, resource_id, before_state)
     else:
-        return http_response(400, render_error_page(f"Unknown action: {action}", 400))
+        return http_response(400, render_error_page("Unknown action.", 400))
 
     _write_audit_item(
         account_id=account_id,

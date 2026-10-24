@@ -221,13 +221,12 @@ def save_to_dynamodb(findings):
 # Prowler CLI scan
 # ---------------------------------------------------------------------------
 
-def run_s3_scan(assumed_session):
+def run_prowler(assumed_session):
     """
     Run Prowler S3 checks via CLI subprocess using the temporary credentials
-    from the cross-account AssumeRole call.
+    from the cross-account AssumeRole call. Pure scan: no persistence, no email.
 
-    Credentials are injected as AWS_* environment variables — no Prowler
-    Python API initialization needed.
+    Returns (account_id, raw_findings) or None if Prowler failed fatally.
 
     Prowler exit codes:
       0 = all checks passed
@@ -264,7 +263,8 @@ def run_s3_scan(assumed_session):
             "aws",
             "--checks", *S3_CHECKS,
             "--no-banner",
-            "--quiet",
+            # No --quiet: in Prowler 3 it drops every PASS result, which made
+            # reports miss clean buckets and show only failures.
             "--output-modes", "json",
             "--output-directory", output_dir,
         ]
@@ -291,44 +291,62 @@ def run_s3_scan(assumed_session):
             print(f"[{account_id}] Prowler failed fatally (code {result.returncode}, no JSON output).")
             if result.stdout.strip():
                 print(f"[{account_id}] STDOUT:\n{result.stdout[-2000:]}")
-            return
+            return None
 
         json_path = json_files[0]
         if os.path.getsize(json_path) == 0:
-            print(f"[{account_id}] JSON output file is empty — no findings to store.")
-            return
+            print(f"[{account_id}] JSON output file is empty — no findings.")
+            return account_id, []
 
         with open(json_path, encoding="utf-8") as fh:
             raw_findings = json.load(fh)
 
         print(f"[{account_id}] Prowler returned {len(raw_findings)} finding(s).")
-
-        fail_findings = [f for f in raw_findings if f.get("Status") == "FAIL"]
-
-        if raw_findings:
-            enriched = [_enrich_finding(f, account_id) for f in raw_findings]
-            save_to_dynamodb(enriched)
-        else:
-            print(f"[{account_id}] No findings (account may have no S3 buckets). Nothing to store.")
-
-        # Build the summary dict that the handler will pass to _publish_summary.
-        sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-        for f in fail_findings:
-            key = f.get("Severity", "").lower()
-            if key in sev:
-                sev[key] += 1
-
-        return {
-            "account_id":        account_id,
-            "total_findings":    len(raw_findings),
-            "fail_count":        len(fail_findings),
-            "buckets_affected":  len({f.get("ResourceId", "") for f in fail_findings}),
-            "severity_breakdown": sev,
-            "fail_findings":     fail_findings,   # raw dicts — JSON-dumped in SNS body
-        }
+        return account_id, raw_findings
 
     finally:
         shutil.rmtree(output_dir, ignore_errors=True)
+
+
+def is_bucket_finding(f):
+    """True for per-bucket checks. Account-level checks (e.g. account-wide
+    Block Public Access) report the account itself as the resource."""
+    return str(f.get("ResourceArn", "")).startswith("arn:aws:s3:::")
+
+
+def summarize(raw_findings):
+    """Severity counts and affected-bucket count for FAIL findings."""
+    fail_findings = [f for f in raw_findings if f.get("Status") == "FAIL"]
+    sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for f in fail_findings:
+        key = f.get("Severity", "").lower()
+        if key in sev:
+            sev[key] += 1
+    return {
+        "total_findings":     len(raw_findings),
+        "fail_count":         len(fail_findings),
+        # Buckets only: counting the account-level resource here once made the
+        # email say "30 of 29 buckets".
+        "buckets_affected":   len({f.get("ResourceId", "") for f in fail_findings if is_bucket_finding(f)}),
+        "account_fail_count": sum(1 for f in fail_findings if not is_bucket_finding(f)),
+        "severity_breakdown": sev,
+        "fail_findings":      fail_findings,   # raw dicts — JSON-dumped in SNS body
+    }
+
+
+def run_s3_scan(assumed_session):
+    """Scan a paying tenant and persist findings under ACC#<id>."""
+    scanned = run_prowler(assumed_session)
+    if scanned is None:
+        return None
+    account_id, raw_findings = scanned
+
+    if raw_findings:
+        save_to_dynamodb([_enrich_finding(f, account_id) for f in raw_findings])
+    else:
+        print(f"[{account_id}] No findings (account may have no S3 buckets). Nothing to store.")
+
+    return {"account_id": account_id, **summarize(raw_findings)}
 
 
 # ---------------------------------------------------------------------------

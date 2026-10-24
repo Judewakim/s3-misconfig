@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  S3 Sentry LIVE DEMO (provider account). Public API + one-shot scanner that let
+  portfolio visitors scan their own AWS account, read-only. Fully isolated from
+  production tenants: separate table, separate roles, no email, 24h data TTL,
+  hard cost caps (reserved concurrency + daily scan cap).
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: "Same ECR image as the orchestrator, e.g. <acct>.dkr.ecr.us-east-1.amazonaws.com/s3sentry-repo:latest"
+  AllowedOrigin:
+    Type: String
+    Default: "https://wakimworks.com"
+    Description: "Exact origin of the demo page (CORS). No trailing slash."
+  StagingOrigin:
+    Type: String
+    Default: "http://localhost:8080"
+    Description: "Second allowed origin for staging/local testing. Set to the prod origin to disable."
+  MaxScansPerDay:
+    Type: Number
+    Default: 50
+    MinValue: 1
+    MaxValue: 500
+  MaxSessionsPerIpPerDay:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    MaxValue: 50
+
+Resources:
+  # ---------------------------------------------------------------- storage
+  DemoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: S3SentryDemo
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      TimeToLiveSpecification: { AttributeName: ttl, Enabled: true }
+      SSESpecification: { SSEEnabled: true }
+
+  # Private home for demo_onboarding.yaml. Nothing here is public: the API
+  # hands each visitor a short-lived presigned URL, which CloudFormation
+  # quick-create can fetch. Works with account-level Block Public Access on.
+  TemplateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "s3sentry-demo-templates-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: { Status: Enabled }
+
+  TemplateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TemplateBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt TemplateBucket.Arn, !Sub "${TemplateBucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  # ------------------------------------------------------------------ roles
+  DemoApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SentryDemoApiRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }
+      Policies:
+        - PolicyName: DemoApi
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/S3SentryDemoApi:*"
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
+                Resource: !GetAtt DemoTable.Arn
+              - Sid: VerifyVisitorRoleOnly
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/S3SentryDemoReadOnlyRole"
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt DemoScannerFunction.Arn
+              - Sid: SignTemplateLinkOnly
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${TemplateBucket.Arn}/demo_onboarding.yaml"
+
+  DemoScannerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SentryDemoScannerRole
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }
+      Policies:
+        - PolicyName: DemoScanner
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/S3SentryDemoScanner:*"
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:UpdateItem]
+                Resource: !GetAtt DemoTable.Arn
+              - Sid: AssumeVisitorRoleOnly
+                Effect: Allow
+                Action: sts:AssumeRole
+                Resource: "arn:aws:iam::*:role/S3SentryDemoReadOnlyRole"
+
+  # ---------------------------------------------------------------- lambdas
+  DemoScannerLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: /aws/lambda/S3SentryDemoScanner, RetentionInDays: 7 }
+
+  DemoApiLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: /aws/lambda/S3SentryDemoApi, RetentionInDays: 7 }
+
+  DemoScannerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DemoScannerLogs
+    Properties:
+      FunctionName: S3SentryDemoScanner
+      Description: "One read-only Prowler scan per live-demo session."
+      PackageType: Image
+      Code: { ImageUri: !Ref ImageUri }
+      ImageConfig: { Command: ["demo_scanner.handler"] }
+      Role: !GetAtt DemoScannerRole.Arn
+      MemorySize: 1024
+      Timeout: 600
+      ReservedConcurrentExecutions: 2       # hard cap on parallel scans (cost ceiling)
+      Environment:
+        Variables: { DEMO_TABLE: !Ref DemoTable }
+
+  DemoScannerAsyncConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref DemoScannerFunction
+      Qualifier: $LATEST
+      MaximumRetryAttempts: 0               # a failed scan is reported, not retried
+      MaximumEventAgeInSeconds: 900         # drop queued scans older than 15 min
+
+  DemoApiFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DemoApiLogs
+    Properties:
+      FunctionName: S3SentryDemoApi
+      Description: "Public API for the S3 Sentry live demo."
+      PackageType: Image
+      Code: { ImageUri: !Ref ImageUri }
+      ImageConfig: { Command: ["demo_api.handler"] }
+      Role: !GetAtt DemoApiRole.Arn
+      MemorySize: 256
+      Timeout: 15
+      ReservedConcurrentExecutions: 5       # caps request-flood cost
+      Environment:
+        Variables:
+          DEMO_TABLE: !Ref DemoTable
+          SCANNER_FUNCTION: !Ref DemoScannerFunction
+          DEMO_TEMPLATE_BUCKET: !Ref TemplateBucket
+          MAX_SCANS_PER_DAY: !Ref MaxScansPerDay
+          MAX_SESSIONS_PER_IP_PER_DAY: !Ref MaxSessionsPerIpPerDay
+
+  DemoApiUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt DemoApiFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowOrigins: [!Ref AllowedOrigin, !Ref StagingOrigin]
+        AllowMethods: [POST]
+        AllowHeaders: [content-type]
+        MaxAge: 600
+
+  # Since Oct 2025 a public URL needs BOTH permissions, or it returns 403.
+  DemoApiUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DemoApiFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  DemoApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DemoApiFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  DemoApiUrl:
+    Description: "Paste into web/config.js as apiUrl."
+    Value: !GetAtt DemoApiUrl.FunctionUrl
+  TemplateBucket:
+    Description: "Upload demo/demo_onboarding.yaml here (key: demo_onboarding.yaml)."
+    Value: !Ref TemplateBucket

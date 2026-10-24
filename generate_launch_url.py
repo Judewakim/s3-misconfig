@@ -13,14 +13,18 @@ Output:
 """
 
 import json
-import uuid
+import secrets
 from urllib.parse import urlencode
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-PROVIDER_ACCOUNT_ID = "390488375643"
+import os
+import boto3
+
+# Provider account = whichever account your current AWS credentials belong to.
+PROVIDER_ACCOUNT_ID = os.environ.get("PROVIDER_ACCOUNT_ID") or boto3.client("sts").get_caller_identity()["Account"]
 STACK_NAME          = "S3SentrySetup"
 REGION              = "us-east-1"
 PENDING_FILE        = ".pending_tenant"
@@ -36,8 +40,8 @@ TEMPLATE_URL = "https://s3.amazonaws.com/<your-bucket>/s3sentry/client_onboardin
 
 
 def generate_launch_url():
-    # Generate a cryptographically random ExternalId for this tenant.
-    external_id = str(uuid.uuid4())
+    # Generate a 256-bit cryptographically random ExternalId for this tenant.
+    external_id = secrets.token_urlsafe(32)
 
     # Build the CloudFormation Quick-Create URL.
     # param_* keys map to CloudFormation Parameter names in the template.
@@ -74,9 +78,8 @@ def generate_launch_url():
     print("  The customer will:")
     print("    1. Click the URL (must be logged into their AWS console)")
     print("    2. Review and deploy the S3SentrySetup CloudFormation stack")
-    print("    3. Copy the three values from the Outputs tab:")
+    print("    3. Copy the two values from the Outputs tab:")
     print("         - RoleArn")
-    print("         - ExternalId  (confirm it matches above)")
     print("         - AWSAccountId")
     print()
     print("  Once the customer shares those values, run:")

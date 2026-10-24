@@ -118,10 +118,10 @@ when multiple tenants are scanned in sequence.
 
 **Pivot 1 — Trust policy principal.** The `client_onboarding.yaml` CloudFormation
 template was designed to trust a specific role ARN:
-`arn:aws:iam::390488375643:role/S3SentryOrchestratorRole`. CloudFormation
+`arn:aws:iam::<PROVIDER_ACCOUNT_ID>:role/S3SentryOrchestratorRole`. CloudFormation
 rejected it with `CREATE_FAILED: Invalid principal in policy` because that role
 doesn't exist yet (it's a Phase 3 deliverable). The temporary fix: use the
-account root (`arn:aws:iam::390488375643:root`) with a `TODO` comment to tighten
+account root (`arn:aws:iam::<PROVIDER_ACCOUNT_ID>:root`) with a `TODO` comment to tighten
 it in Phase 3. The `sts:ExternalId` condition still provides the confused deputy
 protection in the interim.
 
@@ -273,7 +273,7 @@ volume even if the `--output-directory` flag is somehow not applied.
 ### The 'Aha!' Moment
 The first SNS email arriving in the inbox with a correct severity breakdown:
 ```
-⚠️ S3Sentry Alert: 4 Findings for acc#928459458650
+⚠️ S3Sentry Alert: 4 Findings for acc#111122223333
 
 The daily scan is complete. We found 4 FAIL findings across 2 bucket(s).
 
@@ -306,10 +306,10 @@ and the EventBridge rule with its invoke permission. Stack outputs include the e
 `docker push` and `aws lambda update-function-code` commands templated with the correct
 account ID and region.
 
-**Least-Privilege Principal tightening.** Phase 2 used `arn:aws:iam::390488375643:root`
+**Least-Privilege Principal tightening.** Phase 2 used `arn:aws:iam::<PROVIDER_ACCOUNT_ID>:root`
 as the trust policy Principal in `client_onboarding.yaml` — a necessary workaround while
 the Lambda execution role didn't exist yet. Phase 3 resolved the `TODO` comment: the
-Principal was tightened to `arn:aws:iam::390488375643:role/S3SentryOrchestratorRole`.
+Principal was tightened to `arn:aws:iam::<PROVIDER_ACCOUNT_ID>:role/S3SentryOrchestratorRole`.
 Now only the specific Lambda execution role can assume the cross-account role — not any
 principal in the provider account. This is the IAM equivalent of replacing a master key
 with a purpose-cut key.

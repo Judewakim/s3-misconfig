@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 Sentry — Jude Wakim</title>
+<meta name="description" content="S3 Sentry scans AWS S3 buckets for public exposure, missing encryption and weak recovery settings. Try a sample scan, or scan your own account with a read-only role.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://*.lambda-url.us-east-1.on.aws; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <a class="brand" href="./" aria-label="S3 Sentry home">
+    <img src="logo.png" alt="" width="36" height="36">
+    <span>S3 Sentry</span>
+  </a>
+  <nav aria-label="Project links">
+    <a href="https://wakimworks.com/judewakim/">Portfolio</a>
+    <a href="https://github.com/Judewakim/s3-misconfig">GitHub</a>
+  </nav>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="title">
+    <div class="hero-text">
+      <h1 id="title">Find the S3 buckets that would end up in a breach report.</h1>
+      <p class="lede">S3 Sentry checks every bucket in an AWS account for public access, missing encryption and settings that make data impossible to recover, and maps each problem to NIST CSF controls.</p>
+      <div class="hero-actions">
+        <button class="btn primary" id="run-sample" type="button">Run the sample scan</button>
+        <a class="btn ghost" href="#live">Scan your own account</a>
+      </div>
+      <p class="fine">The sample scan uses a fictional company and runs entirely in your browser.</p>
+    </div>
+
+    <figure class="wall-card" aria-labelledby="wall-caption">
+      <div class="wall-head">
+        <span id="wall-account">acme-retail, 6 buckets</span>
+        <span id="wall-progress" aria-live="polite">Ready</span>
+      </div>
+      <ol class="wall" id="wall"></ol>
+      <figcaption id="wall-caption" class="legend">
+        <span class="legend-text">Each square is one of 14 security checks run against that bucket.</span>
+        <span class="keys">
+          <span class="key"><i class="dot" data-k="critical"></i>Critical</span>
+          <span class="key"><i class="dot" data-k="high"></i>High</span>
+          <span class="key"><i class="dot" data-k="medium"></i>Medium</span>
+          <span class="key"><i class="dot" data-k="low"></i>Low</span>
+          <span class="key"><i class="dot" data-k="pass"></i>Passed</span>
+          <span class="key"><i class="dot" data-k="na"></i>No result</span>
+        </span>
+      </figcaption>
+    </figure>
+  </section>
+
+  <section class="results" id="results" aria-labelledby="results-title" hidden>
+    <div class="results-head">
+      <div>
+        <h2 id="results-title">What the scan found</h2>
+        <p id="results-summary" class="summary"></p>
+      </div>
+      <div class="filters" role="group" aria-label="Filter findings">
+        <button type="button" class="chip" data-filter="FAIL" aria-pressed="true">Failed</button>
+        <button type="button" class="chip" data-filter="ALL" aria-pressed="false">All checks</button>
+      </div>
+    </div>
+    <ul class="findings" id="findings"></ul>
+    <button type="button" class="btn ghost small show-more" id="show-more" hidden>Show all</button>
+    <p class="fine" id="results-note"></p>
+  </section>
+
+  <section class="live" id="live" aria-labelledby="live-title">
+    <div class="section-intro">
+      <h2 id="live-title">Scan your own AWS account</h2>
+      <p>A real scan by the same engine. It reads bucket settings only, never your files, and it can't change anything. Results are deleted after 24 hours.</p>
+    </div>
+
+    <div class="live-off" id="live-off" hidden>
+      <p>The live scanner isn't connected on this copy of the page. Run the sample scan above, or read the source on GitHub.</p>
+    </div>
+
+    <ol class="steps" id="steps">
+      <li class="step" data-step="1">
+        <div class="step-body">
+          <h3>Get a one-time link</h3>
+          <p>Creates a private session and a secret only your account will hold.</p>
+          <button class="btn primary" id="start-session" type="button">Create my demo link</button>
+          <p class="status" id="s1-status" role="status"></p>
+        </div>
+      </li>
+      <li class="step" data-step="2" aria-disabled="true">
+        <div class="step-body">
+          <h3>Deploy the read-only role</h3>
+          <p>Opens AWS CloudFormation with everything filled in. Tick the box that acknowledges IAM resources, then choose <b>Create stack</b>. It takes about a minute.</p>
+          <a class="btn ghost" id="launch-link" href="#" target="_blank" rel="noopener noreferrer" aria-disabled="true">Open CloudFormation</a>
+          <details class="perm">
+            <summary>Exactly what the role can do</summary>
+            <p>Read the configuration of your buckets: public access settings, policy and ACL status, encryption, versioning, object lock, logging and ownership. It can't list or read objects and has no write permissions. Only S3 Sentry's demo scanner can use it, and only with your session's secret.</p>
+            <p><a href="https://github.com/Judewakim/s3-misconfig/blob/main/demo/demo_onboarding.yaml">Read the template</a></p>
+          </details>
+        </div>
+      </li>
+      <li class="step" data-step="3" aria-disabled="true">
+        <div class="step-body">
+          <h3>Start the scan</h3>
+          <form id="scan-form" novalidate>
+            <label for="account-id">Your 12-digit AWS account ID</label>
+            <div class="row">
+              <input id="account-id" name="account" inputmode="numeric" autocomplete="off" placeholder="1234 5678 9012" maxlength="14" disabled>
+              <button class="btn primary" id="scan-btn" type="submit" disabled>Start scan</button>
+            </div>
+          </form>
+          <p class="status" id="s3-status" role="status"></p>
+        </div>
+      </li>
+      <li class="step" data-step="4" aria-disabled="true">
+        <div class="step-body">
+          <h3>Remove the role</h3>
+          <p>When you're done, delete the <b>S3SentryLiveDemo</b> stack in CloudFormation. That removes the only thing the demo created.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+
+  <section class="coverage" id="coverage" aria-labelledby="coverage-title">
+    <div class="section-intro">
+      <h2 id="coverage-title">What the scan covers</h2>
+      <p>S3 bucket and account-level S3 configuration in one AWS account: 14 checks from the open-source Prowler engine, each mapped to NIST CSF 1.1. Every check is scanned today. One-click fixes are being built in stages, and automatic undo isn't working yet for any of them.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="checks">
+        <thead>
+          <tr><th scope="col">Check</th><th scope="col">One-click fix</th><th scope="col">Can be undone</th><th scope="col">What to know</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Bucket-level Block Public Access</th><td data-label="One-click fix" data-v="built">Built, in testing</td><td data-label="Undo">Full</td><td data-label="What to know"></td></tr>
+          <tr><th scope="row">Account-level Block Public Access</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Applies to every bucket in the account.</td></tr>
+          <tr><th scope="row">Bucket is publicly accessible</th><td data-label="One-click fix" data-v="built">Built, in testing</td><td data-label="Undo">Full</td><td data-label="What to know">Fixed by turning on Block Public Access.</td></tr>
+          <tr><th scope="row">ACL allows public listing</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know"></td></tr>
+          <tr><th scope="row">ACL allows public writes</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know"></td></tr>
+          <tr><th scope="row">Policy allows public writes</th><td data-label="One-click fix" data-v="guidance-only">Guidance only</td><td data-label="Undo">Not applicable</td><td data-label="What to know">Policy edits need a person to review them.</td></tr>
+          <tr><th scope="row">ACLs disabled (owner enforced)</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Can break apps that still rely on ACLs.</td></tr>
+          <tr><th scope="row">Default encryption</th><td data-label="One-click fix" data-v="built">Built, in testing</td><td data-label="Undo">Full</td><td data-label="What to know">Existing objects stay as they are.</td></tr>
+          <tr><th scope="row">Encrypted with a KMS key</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Needs a key you choose; adds KMS cost.</td></tr>
+          <tr><th scope="row">Versioning</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Partial</td><td data-label="What to know">AWS lets you suspend versioning, never fully turn it off.</td></tr>
+          <tr><th scope="row">Object Lock</th><td data-label="One-click fix" data-v="guidance-only">Guidance only</td><td data-label="Undo">None</td><td data-label="What to know">AWS can't turn Object Lock off once it's on.</td></tr>
+          <tr><th scope="row">MFA Delete</th><td data-label="One-click fix" data-v="not-possible">Not possible</td><td data-label="Undo">Not applicable</td><td data-label="What to know">Only the account's root user can enable it.</td></tr>
+          <tr><th scope="row">Server access logging</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Needs a log bucket; adds storage cost.</td></tr>
+          <tr><th scope="row">Policy requires HTTPS</th><td data-label="One-click fix" data-v="planned">Planned</td><td data-label="Undo">Full</td><td data-label="What to know">Blocks any client still using plain HTTP.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="scope-grid">
+      <div>
+        <h3>Not covered yet</h3>
+        <ul>
+          <li>What's inside your files, such as personal or health data</li>
+          <li>IAM users, roles and access keys</li>
+          <li>Other AWS services: EC2, RDS, Lambda, CloudTrail and the rest</li>
+          <li>Threat detection on live traffic</li>
+          <li>Other clouds</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Not a compliance audit</h3>
+        <p>Findings map to NIST CSF controls to help you prioritize. They aren't a HIPAA, PCI DSS or SOC 2 assessment.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="built" aria-labelledby="built-title">
+    <div class="section-intro">
+      <h2 id="built-title">How it works</h2>
+    </div>
+    <div class="built-grid">
+      <div>
+        <h3>No code in your account</h3>
+        <p>You deploy one IAM role. S3 Sentry assumes it from its own account with a per-customer External ID, which blocks the confused-deputy attack, and a trust condition that admits only its two Lambda roles.</p>
+      </div>
+      <div>
+        <h3>Scheduled, serverless scans</h3>
+        <p>EventBridge triggers a container Lambda daily. It runs Prowler's S3 checks, maps each failure to NIST CSF, and stores findings in S3 Sentry's own DynamoDB table, never in your account.</p>
+      </div>
+      <div>
+        <h3>Fixes you approve by email</h3>
+        <p>The full version emails each finding with Fix and Ignore links signed with HMAC-SHA256. A link works once, expires in 24 hours and stops working after a newer scan. Current settings are saved to a vault before any change. The live demo is read-only, so it skips this step.</p>
+      </div>
+    </div>
+    <p class="stack">Python, AWS Lambda (container image), EventBridge, DynamoDB, STS, SES, SSM Parameter Store, CloudFormation, Prowler.</p>
+  </section>
+  <section class="contact" aria-labelledby="contact-title">
+    <h2 id="contact-title">Want this watching your buckets?</h2>
+    <p>S3 Sentry is in private testing. Email me to get early access for your company's AWS accounts.</p>
+    <a class="btn primary" href="mailto:judewakim@wakimworks.com?subject=S3%20Sentry%20early%20access">Request early access</a>
+  </section>
+</main>
+
+<footer class="foot">
+  <img src="logo.png" alt="" width="24" height="24">
+  <p>S3 Sentry, built by Jude Wakim. <a href="https://github.com/Judewakim/s3-misconfig">Source on GitHub</a></p>
+</footer>
+
+<script src="config.js"></script>
+<script src="sample-scan.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

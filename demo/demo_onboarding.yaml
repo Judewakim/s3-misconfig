@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  S3 Sentry LIVE DEMO - creates one READ-ONLY IAM role that lets the S3 Sentry
+  demo scanner read your S3 bucket *settings* (never your objects) for a single
+  scan. It cannot change, delete or read any data. Delete this stack when you
+  are done; nothing else is created in your account.
+
+Parameters:
+  ProviderAccountId:
+    Type: String
+    AllowedPattern: "^[0-9]{12}$"
+    Description: "S3 Sentry provider AWS account ID. Pre-filled by the demo page."
+
+  ExternalId:
+    Type: String
+    MinLength: 32
+    MaxLength: 128
+    AllowedPattern: "^[A-Za-z0-9_-]+$"
+    NoEcho: true
+    Description: "One-time secret for this demo session. Pre-filled by the demo page; do not share."
+
+Resources:
+  S3SentryDemoReadOnlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: S3SentryDemoReadOnlyRole
+      Description: "S3 Sentry live demo - read-only access to S3 bucket configuration."
+      MaxSessionDuration: 3600
+      # Only the S3 Sentry demo scanner Lambdas can assume this role, and only
+      # with this session's one-time ExternalId (Confused Deputy protection).
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowS3SentryDemoScannerOnly
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${ProviderAccountId}:root"
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+              ArnEquals:
+                aws:PrincipalArn:
+                  - !Sub "arn:aws:iam::${ProviderAccountId}:role/S3SentryDemoApiRole"
+                  - !Sub "arn:aws:iam::${ProviderAccountId}:role/S3SentryDemoScannerRole"
+      Policies:
+        - PolicyName: S3SentryDemoReadBucketSettings
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Bucket-level configuration reads only. No s3:GetObject, no
+              # s3:ListBucket (object listing), no Put*/Delete* of any kind.
+              - Sid: ReadBucketConfigurationOnly
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                  - s3:GetBucketAcl
+                  - s3:GetBucketPolicy
+                  - s3:GetBucketPolicyStatus
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetAccountPublicAccessBlock
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetEncryptionConfiguration
+                  - s3:GetBucketVersioning
+                  - s3:GetBucketObjectLockConfiguration
+                  - s3:GetBucketLogging
+                  - s3:GetBucketTagging
+                  - s3:GetLifecycleConfiguration
+                  - s3:GetReplicationConfiguration
+                  - s3:GetBucketCORS
+                  - s3:GetBucketWebsite
+                Resource: "*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+Outputs:
+  RoleArn:
+    Description: "Role S3 Sentry will use for this one scan."
+    Value: !GetAtt S3SentryDemoReadOnlyRole.Arn
+  AWSAccountId:
+    Description: "Your AWS account ID - paste this into the demo page."
+    Value: !Ref AWS::AccountId

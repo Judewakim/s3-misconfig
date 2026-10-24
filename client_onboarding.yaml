@@ -19,6 +19,17 @@ Parameters:
     MinLength: 8
     NoEcho: true
 
+  EnableRemediation:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: >
+      "true" lets S3 Sentry apply one-click fixes you approve by email.
+      "false" deploys a strictly read-only role (scan and report only).
+
+Conditions:
+  RemediationEnabled: !Equals [!Ref EnableRemediation, "true"]
+
 # ---------------------------------------------------------------------------
 # Resources
 # ---------------------------------------------------------------------------
@@ -31,17 +42,18 @@ Resources:
       Description: "Grants S3 Sentry read and remediation access to S3 in this account."
 
       # ----- Trust Policy -----
-      # Only authenticated principals in the S3 Sentry provider account may
-      # assume this role, and only when presenting the correct ExternalId.
-      # This prevents the Confused Deputy attack: even if an attacker tricks
-      # our orchestrator, they cannot assume this role without the unique token.
-      #
-      # TODO: Tighten this Principal to the specific S3SentryOrchestratorRole
-      #       once Phase 3 is deployed (arn:aws:iam::${ProviderAccountId}:role/S3SentryOrchestratorRole).
+      # Two independent locks, both required:
+      #   1. ExternalId  — unique per tenant; stops the Confused Deputy attack.
+      #   2. PrincipalArn — only the two S3 Sentry Lambda roles may assume this
+      #      role, not any other identity in the provider account.
+      # PrincipalArn is used (instead of putting the role ARNs in Principal)
+      # because IAM rewrites a role-ARN Principal to the role's internal ID.
+      # If the provider stack is ever recreated, that ID changes and every
+      # tenant's trust policy silently breaks. A condition on the ARN survives.
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Sid: AllowS3SentryOrchestrator
+          - Sid: AllowS3SentryLambdasOnly
             Effect: Allow
             Principal:
               AWS: !Sub "arn:aws:iam::${ProviderAccountId}:root"
@@ -49,6 +61,10 @@ Resources:
             Condition:
               StringEquals:
                 sts:ExternalId: !Ref ExternalId
+              ArnEquals:
+                aws:PrincipalArn:
+                  - !Sub "arn:aws:iam::${ProviderAccountId}:role/S3SentryOrchestratorRole"
+                  - !Sub "arn:aws:iam::${ProviderAccountId}:role/S3SentryResponderRole"
 
       Policies:
         # ----- Policy 1: Audit (Read-Only) -----
@@ -66,6 +82,8 @@ Resources:
                   - s3:GetBucketPolicy
                   - s3:GetBucketPolicyStatus
                   - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketOwnershipControls
+                  - s3:GetBucketTagging
                   - s3:GetEncryptionConfiguration
                   - s3:GetBucketVersioning
                   - s3:GetBucketObjectLockConfiguration
@@ -75,6 +93,17 @@ Resources:
                   - s3:GetBucketCORS
                   - s3:GetReplicationConfiguration
                 Resource: "arn:aws:s3:::*"
+                Condition:
+                  Bool:
+                    aws:SecureTransport: "true"
+
+              # Account-level settings have no bucket ARN, so they need "*".
+              - Sid: S3AccountLevelRead
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetAccountPublicAccessBlock
+                Resource: "*"
                 Condition:
                   Bool:
                     aws:SecureTransport: "true"
@@ -114,37 +143,41 @@ Resources:
         # Required for Phase 4 safety_engine.py one-click fixes.
         # Scoped to bucket-level S3 ARNs only — no object-level access.
         # Never includes DeleteBucket, DeleteObject, PutObject, or any IAM action.
-        - PolicyName: S3SentryRemediationPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid: S3WriteAccess
-                Effect: Allow
-                Action:
-                  - s3:PutBucketPublicAccessBlock
-                  - s3:PutBucketPolicy
-                  - s3:PutEncryptionConfiguration
-                  - s3:PutBucketVersioning
-                  - s3:PutBucketAcl
-                  - s3:PutBucketLogging
-                Resource: "arn:aws:s3:::*"
-                Condition:
-                  Bool:
-                    aws:SecureTransport: "true"
+        - !If
+          - RemediationEnabled
+          - PolicyName: S3SentryRemediationPolicy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Sid: S3WriteAccess
+                  Effect: Allow
+                  Action:
+                    - s3:PutBucketPublicAccessBlock
+                    - s3:PutBucketPolicy
+                    - s3:PutEncryptionConfiguration
+                    - s3:PutBucketVersioning
+                    - s3:PutBucketAcl
+                    - s3:PutBucketLogging
+                  Resource: "arn:aws:s3:::*"
+                  Condition:
+                    Bool:
+                      aws:SecureTransport: "true"
 
-              - Sid: KMSWriteAccess
-                Effect: Allow
-                Action:
-                  - kms:EnableKeyRotation
-                Resource: "*"
-                Condition:
-                  Bool:
-                    aws:SecureTransport: "true"
+                - Sid: KMSWriteAccess
+                  Effect: Allow
+                  Action:
+                    - kms:EnableKeyRotation
+                  Resource: "*"
+                  Condition:
+                    Bool:
+                      aws:SecureTransport: "true"
+          - !Ref AWS::NoValue
 
 # ---------------------------------------------------------------------------
 # Outputs
 # ---------------------------------------------------------------------------
-# The customer copies these three values into the S3 Sentry onboarding form.
+# The customer copies these two values (the ExternalId is never echoed back,
+# because it is NoEcho; S3 Sentry already holds it from registration) into the S3 Sentry onboarding form.
 # The orchestrator stores them as:
 #   PK = ACC#<AWSAccountId>
 #   SK = METADATA
@@ -155,10 +188,7 @@ Outputs:
     Description: "S3 Sentry — paste this as your Role ARN"
     Value: !GetAtt S3SentryCrossAccountRole.Arn
 
-  ExternalId:
-    Description: "S3 Sentry — paste this as your External ID"
-    Value: !Ref ExternalId
-
   AWSAccountId:
     Description: "S3 Sentry — your AWS Account ID"
     Value: !Ref AWS::AccountId
+
