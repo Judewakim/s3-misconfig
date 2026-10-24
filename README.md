@@ -2,6 +2,8 @@
 
 S3 Sentry is a high-fidelity, multi-tenant security orchestration platform designed to provide continuous oversight of AWS S3 storage environments. It acts as an automated "Data Security Officer," ensuring that organizational data remains private, encrypted, and compliant without manual intervention.
 
+**Try it:** [live demo](https://wakimworks.com/judewakim/s3-sentry/). Run a sample scan in your browser, or scan your own AWS account with a read-only role you can delete afterwards.
+
 ------
 ### The Mission
 
@@ -81,18 +83,24 @@ Key environment constraints solved in the image:
 
 #### Security Milestone: Least-Privilege Trust
 
-Phase 2 used an AWS account-root Principal in the cross-account trust policy as a
-temporary workaround (the orchestrator role did not exist yet). Phase 3 resolved this:
+The client role trusts the provider account only when **both** conditions hold:
 
 ```yaml
-# Phase 2 (workaround):
 Principal:
   AWS: arn:aws:iam::<PROVIDER_ACCOUNT_ID>:root
-
-# Phase 3 (least-privilege — current):
-Principal:
-  AWS: arn:aws:iam::<PROVIDER_ACCOUNT_ID>:role/S3SentryOrchestratorRole
+Condition:
+  StringEquals:
+    sts:ExternalId: <per-tenant secret>
+  ArnEquals:
+    aws:PrincipalArn:
+      - arn:aws:iam::<PROVIDER_ACCOUNT_ID>:role/S3SentryOrchestratorRole
+      - arn:aws:iam::<PROVIDER_ACCOUNT_ID>:role/S3SentryResponderRole
 ```
+
+Putting the role ARNs directly in `Principal` looks tighter, but IAM stores them as the
+role's internal ID. Recreating the provider stack changes that ID and silently breaks
+every tenant's trust policy (this happened in Phase 4). A `PrincipalArn` condition
+gives the same least-privilege result and survives role recreation.
 
 The Lambda execution role (`S3SentryOrchestratorRole`) is scoped to the minimum
 permissions required: DynamoDB query/write on the `S3Sentry` table, STS AssumeRole
@@ -214,13 +222,38 @@ into the Orchestrator Lambda — in the correct order with no manual steps.
 
   [~] Phase 4: Interactive SOAR Platform (Infrastructure complete — code sprints in progress).
 
-  [ ] Phase 4 Sprint 1: HMAC Token System + SES HTML Dashboard Email.
+  [x] Phase 4 Sprint 1: HMAC Token System + SES HTML Dashboard Email.
 
-  [ ] Phase 4 Sprint 2: Responder Lambda (FIX / IGNORE / ROLLBACK).
+  [~] Phase 4 Sprint 2: Responder Lambda (FIX / IGNORE working in dry-run; ROLLBACK not finished, see below).
+
+  [x] Public live demo: read-only, isolated, rate-limited (`demo/`, `web/`).
 
   [ ] Phase 4 Sprint 3: Confidence Engine (per-finding action scoring).
 
   [ ] Phase 4 Sprints 4-5: Rollback, Yesterday's Activity, Suppression System.
+
+#### Known limitations
+
+- **Rollback is not finished.** `responder.py` currently snapshots the *current*
+  config at rollback time instead of loading the pre-fix snapshot from the vault,
+  so a rollback is a no-op. Remediation ships with `DRY_RUN=true` until this is fixed.
+- One-click fixes cover two checks today (bucket Block Public Access, default encryption).
+
+------
+### Repository layout
+
+| Path | What it is |
+|---|---|
+| `lambda_handler.py` | Scheduled multi-tenant scanner (container Lambda) |
+| `responder.py`, `token_utils.py` | Signed Fix/Ignore links and the remediation handler |
+| `client_onboarding.yaml` | The one IAM role a customer deploys |
+| `provider_infrastructure.yaml`, `deploy.ps1` | Provider-account infrastructure and deploy script |
+| `demo/` | Isolated public live demo (API, scanner, templates, deploy notes) |
+| `web/` | Static demo page for the portfolio |
+| `tests/` | `python -m pytest -q tests/` |
+| `orchestrator.py`, `run_orchestrator.bat` | Local runner used in Phases 1–2 |
+
+The earlier v1 scanner (SES + HIPAA compliance stack) is preserved at the git tag `legacy-v1-scanner`.
 
 ------
 ### SUPPORT AND CONTACT
