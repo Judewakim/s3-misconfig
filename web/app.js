@@ -128,8 +128,10 @@
     }
     var parts = ["critical", "high", "medium", "low"].filter(function (s) { return r.severity[s]; })
       .map(function (s) { return r.severity[s] + " " + s; });
-    return r.failCount + " failed checks across " + r.bucketsAffected + " of " + r.bucketsScanned +
-      " buckets: " + parts.join(", ") + ".";
+    var acct = r.accountFailCount || 0;
+    var where = r.bucketsAffected + " of " + r.bucketsScanned + " buckets" +
+      (acct ? " and " + acct + " account-wide setting" + (acct > 1 ? "s" : "") : "");
+    return r.failCount + " failed checks across " + where + ": " + parts.join(", ") + ".";
   }
 
   function renderFindings() {
@@ -170,7 +172,11 @@
     if (f.status === "FAIL") {
       var preview = SAMPLE.fixPreviews[f.check];
       var actions = el("div", "finding-actions");
-      if (current.sample && preview) {
+      if (!current.sample && preview) {
+        actions.appendChild(el("p", "fine",
+          "Customers can fix this with one click from their scan email. The live demo is read-only, so it can't change anything in your account."));
+        body.appendChild(actions);
+      } else if (current.sample && preview) {
         var btn = el("button", "btn small", "Preview the fix");
         btn.type = "button";
         btn.setAttribute("aria-expanded", "false");

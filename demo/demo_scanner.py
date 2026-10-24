@@ -15,7 +15,7 @@ import time
 import boto3
 import botocore.exceptions
 
-from lambda_handler import NIST_CSF_MAPPING, run_prowler, summarize
+from lambda_handler import NIST_CSF_MAPPING, is_bucket_finding, run_prowler, summarize
 
 TABLE_NAME     = os.environ.get("DEMO_TABLE", "S3SentryDemo")
 DEMO_ROLE_NAME = os.environ.get("DEMO_ROLE_NAME", "S3SentryDemoReadOnlyRole")
@@ -90,11 +90,11 @@ def handler(event, context):
         "accountId":        account_id,
         "scannedAt":        int(time.time()),
         "checksRun":        len({f.get("CheckID") for f in raw}),
-        "bucketsScanned":   len({f.get("ResourceId") for f in raw
-                                 if str(f.get("ResourceArn", "")).startswith("arn:aws:s3:::")}),
+        "bucketsScanned":   len({f.get("ResourceId") for f in raw if is_bucket_finding(f)}),
         "totalFindings":    summary["total_findings"],
         "failCount":        summary["fail_count"],
         "bucketsAffected":  summary["buckets_affected"],
+        "accountFailCount": summary["account_fail_count"],
         "severity":         summary["severity_breakdown"],
         "findings":         compact(raw),
         "truncated":        len(raw) > MAX_FINDINGS,

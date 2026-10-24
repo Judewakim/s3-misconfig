@@ -145,3 +145,17 @@ def test_launch_link_refresh(api):
     with mock.patch.object(api._sts, "assume_role"):
         call(api, "/sessions/scan", {"sessionId": sid, "accountId": "111122223333"})
     assert call(api, "/sessions/launch", {"sessionId": sid})[0] == 409
+
+
+def test_account_level_failure_not_counted_as_bucket():
+    from lambda_handler import summarize
+    raw = [
+        {"Status": "FAIL", "Severity": "high", "ResourceId": "111122223333",
+         "ResourceArn": "arn:aws:iam::111122223333:root"},
+        {"Status": "FAIL", "Severity": "medium", "ResourceId": "b1", "ResourceArn": "arn:aws:s3:::b1"},
+        {"Status": "PASS", "Severity": "low", "ResourceId": "b2", "ResourceArn": "arn:aws:s3:::b2"},
+    ]
+    s = summarize(raw)
+    assert s["buckets_affected"] == 1          # was 2 ("30 of 29 buckets" bug)
+    assert s["account_fail_count"] == 1
+    assert s["fail_count"] == 2

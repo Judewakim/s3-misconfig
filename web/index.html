@@ -118,11 +118,11 @@
       </div>
       <div>
         <h3>Scheduled, serverless scans</h3>
-        <p>EventBridge triggers a containerized Lambda daily. It runs Prowler's S3 checks, maps every failure to NIST CSF controls, and stores findings in a single DynamoDB table keyed by account.</p>
+        <p>EventBridge triggers a containerized Lambda daily. It runs Prowler's S3 checks, maps every failure to NIST CSF controls, and stores the findings in S3 Sentry's own DynamoDB table, never in the customer's account.</p>
       </div>
       <div>
         <h3>Fixes you approve by email</h3>
-        <p>Each finding gets Fix and Ignore links signed with HMAC-SHA256. A link works once, expires in 24 hours and dies when a newer scan runs. The current configuration is saved to a vault before any change, so it can be rolled back.</p>
+        <p>Paying customers get a scan email where each finding has Fix and Ignore links signed with HMAC-SHA256. The live demo skips this because its role is read-only; the sample scan shows what a fix changes. A link works once, expires in 24 hours and dies when a newer scan runs. The current configuration is saved to a vault before any change, so it can be rolled back.</p>
       </div>
     </div>
     <p class="stack">Built with Python, AWS Lambda (container image), EventBridge, DynamoDB, STS, SES, SSM Parameter Store, CloudFormation and Prowler.</p>

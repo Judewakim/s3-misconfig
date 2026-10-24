@@ -307,6 +307,12 @@ def run_prowler(assumed_session):
         shutil.rmtree(output_dir, ignore_errors=True)
 
 
+def is_bucket_finding(f):
+    """True for per-bucket checks. Account-level checks (e.g. account-wide
+    Block Public Access) report the account itself as the resource."""
+    return str(f.get("ResourceArn", "")).startswith("arn:aws:s3:::")
+
+
 def summarize(raw_findings):
     """Severity counts and affected-bucket count for FAIL findings."""
     fail_findings = [f for f in raw_findings if f.get("Status") == "FAIL"]
@@ -318,7 +324,10 @@ def summarize(raw_findings):
     return {
         "total_findings":     len(raw_findings),
         "fail_count":         len(fail_findings),
-        "buckets_affected":   len({f.get("ResourceId", "") for f in fail_findings}),
+        # Buckets only: counting the account-level resource here once made the
+        # email say "30 of 29 buckets".
+        "buckets_affected":   len({f.get("ResourceId", "") for f in fail_findings if is_bucket_finding(f)}),
+        "account_fail_count": sum(1 for f in fail_findings if not is_bucket_finding(f)),
         "severity_breakdown": sev,
         "fail_findings":      fail_findings,   # raw dicts — JSON-dumped in SNS body
     }
