@@ -263,7 +263,8 @@ def run_prowler(assumed_session):
             "aws",
             "--checks", *S3_CHECKS,
             "--no-banner",
-            "--quiet",
+            # No --quiet: in Prowler 3 it drops every PASS result, which made
+            # reports miss clean buckets and show only failures.
             "--output-modes", "json",
             "--output-directory", output_dir,
         ]

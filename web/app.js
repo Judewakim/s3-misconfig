@@ -21,15 +21,26 @@
 
   /* ---------------------------------------------------------- bucket wall */
 
-  function groupByBucket(findings, checks) {
+  function groupByBucket(findings, checks, allFindings) {
     var map = {}, order = [];
     findings.forEach(function (f) {
       if (!map[f.resource]) { map[f.resource] = {}; order.push(f.resource); }
       map[f.resource][f.check] = f;
     });
-    return order.map(function (name) {
-      return { name: name, cells: checks.map(function (c) { return map[name][c] || null; }) };
+    // Account-wide checks (e.g. account-level Block Public Access) apply to
+    // every bucket, so show that one result in each bucket's row.
+    var acct = {};
+    (allFindings || []).forEach(function (f) {
+      if (/^\d{12}$/.test(f.resource || "")) acct[f.check] = f;
     });
+    return order.map(function (name) {
+      return { name: name, cells: checks.map(function (c) { return map[name][c] || acct[c] || null; }) };
+    });
+  }
+
+  function checkTitle(id) {
+    var hit = (SAMPLE.result.findings || []).filter(function (f) { return f.check === id; })[0];
+    return hit ? hit.title : id;
   }
 
   function worst(cells) {
@@ -47,18 +58,19 @@
     // wall is per bucket, so leave those rows to the findings list.
     var buckets = groupByBucket(result.findings.filter(function (f) {
       return f.resource && !/^\d{12}$/.test(f.resource);
-    }), checks);
-    var MAX = 24;
+    }), checks, result.findings);
+    var MAX = 1000;
     buckets.slice(0, MAX).forEach(function (b) {
       var li = el("li", "bucket");
       li.appendChild(el("span", "bucket-name", b.name));
       var pips = el("span", "pips");
       pips.setAttribute("aria-hidden", "true");
-      b.cells.forEach(function (f) {
+      b.cells.forEach(function (f, ci) {
         var p = el("i", "pip");
         p.dataset.status = f ? f.status : "NA";
         p.dataset.sev = f ? f.severity : "";
-        p.title = f ? (f.title + ": " + (f.status === "FAIL" ? "failed" : "passed")) : "";
+        p.title = f ? (f.title + ": " + (f.status === "FAIL" ? "failed" : "passed"))
+                    : (checkTitle(checks[ci]) + ": no result");
         pips.appendChild(p);
       });
       li.appendChild(pips);
@@ -94,13 +106,14 @@
       done();
       return;
     }
-    var i = 0, all = [];
+    var i = 0, all = [], perTick;
     items.forEach(function (li) {
       li.querySelectorAll(".pip").forEach(function (p) { all.push([li, p]); });
     });
+    perTick = Math.max(2, Math.ceil(all.length / 110));   // ~3 s however many buckets
     progress.textContent = "Scanning";
     var timer = setInterval(function () {
-      for (var k = 0; k < 2 && i < all.length; k++, i++) {
+      for (var k = 0; k < perTick && i < all.length; k++, i++) {
         all[i][1].classList.add("on");
         var li = all[i][0];
         if (i === all.length - 1 || all[i + 1][0] !== li) settle(li);
@@ -122,14 +135,31 @@
     if (items[8]) items[8].querySelector("h3").setAttribute("tabindex", "-1"), items[8].querySelector("h3").focus();
   });
 
+  function isAccountLevel(f) { return /^\d{12}$/.test(f.resource || ""); }
+
+  function counts(r) {
+    var all = {}, failed = {}, acct = 0;
+    (r.findings || []).forEach(function (f) {
+      if (isAccountLevel(f)) { if (f.status === "FAIL") acct += 1; return; }
+      all[f.resource] = true;
+      if (f.status === "FAIL") failed[f.resource] = true;
+    });
+    return {
+      scanned: Math.max(Object.keys(all).length, r.bucketsScanned || 0),
+      affected: Object.keys(failed).length,
+      acct: acct
+    };
+  }
+
   function summaryText(r) {
+    var c = counts(r);
     if (r.failCount === 0) {
-      return "No failed checks across " + r.bucketsScanned + " buckets. Every bucket passed all " + r.checksRun + " checks.";
+      return "No failed checks across " + c.scanned + " buckets. Every bucket passed all " + r.checksRun + " checks.";
     }
     var parts = ["critical", "high", "medium", "low"].filter(function (s) { return r.severity[s]; })
       .map(function (s) { return r.severity[s] + " " + s; });
-    var acct = r.accountFailCount || 0;
-    var where = r.bucketsAffected + " of " + r.bucketsScanned + " buckets" +
+    var acct = c.acct;
+    var where = c.affected + " of " + c.scanned + " buckets" +
       (acct ? " and " + acct + " account-wide setting" + (acct > 1 ? "s" : "") : "");
     return r.failCount + " failed checks across " + where + ": " + parts.join(", ") + ".";
   }
@@ -413,7 +443,7 @@
         if (j.status === "DONE") {
           setStep(4);
           say("s3-status", "Scan complete. Your results are at the top of the page.", "ok");
-          runScan(j.result, "Account " + j.result.accountId + ", " + j.result.bucketsScanned + " buckets");
+          runScan(j.result, "Account " + j.result.accountId + ", " + counts(j.result).scanned + " buckets");
           $("results").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
         } else if (j.status === "ERROR") {
           say("s3-status", j.error, "err");

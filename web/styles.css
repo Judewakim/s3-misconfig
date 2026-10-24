@@ -112,7 +112,14 @@ main > section + section { border-top: 1px solid var(--line); }
 }
 #wall-account { font: 500 13px var(--mono); color: var(--ink); }
 #wall-progress { white-space: nowrap; }
-.wall { list-style: none; margin: 0; padding: 0; }
+/* Fixed-height window: about six buckets visible, the rest scroll inside. */
+.wall {
+  list-style: none; margin: 0; padding: 0 6px 0 0;
+  max-height: 372px; overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: #c9ccc5 transparent;
+}
+.wall::-webkit-scrollbar { width: 6px; }
+.wall::-webkit-scrollbar-thumb { background: #c9ccc5; border-radius: 3px; }
 .bucket {
   display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center;
   padding: 12px 0; border-bottom: 1px solid var(--wash);
@@ -134,7 +141,7 @@ main > section + section { border-top: 1px solid var(--line); }
 .pip.on[data-status="FAIL"][data-sev="high"] { background: var(--high); }
 .pip.on[data-status="FAIL"][data-sev="medium"] { background: var(--medium); }
 .pip.on[data-status="FAIL"][data-sev="low"] { background: var(--low); }
-.pip.on[data-status="NA"] { background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
+.pip.on[data-status="NA"] { background: transparent; box-shadow: inset 0 0 0 1px #c9ccc5; }
 .verdict { font-size: 13px; font-weight: 600; color: var(--muted); }
 .bucket[data-worst="critical"] .verdict { color: var(--critical); }
 .bucket[data-worst="high"] .verdict { color: #b45d12; }
@@ -156,6 +163,7 @@ main > section + section { border-top: 1px solid var(--line); }
 .dot[data-k="medium"] { background: var(--medium); }
 .dot[data-k="low"] { background: var(--low); }
 .dot[data-k="pass"] { background: var(--green); }
+.dot[data-k="na"] { box-shadow: inset 0 0 0 1px #9a9d97; }
 
 /* --------------------------------------------------------- findings */
 .results-head {
