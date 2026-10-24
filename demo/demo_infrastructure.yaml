@@ -44,9 +44,9 @@ Resources:
       TimeToLiveSpecification: { AttributeName: ttl, Enabled: true }
       SSESpecification: { SSEEnabled: true }
 
-  # Public, read-only home for demo_onboarding.yaml. CloudFormation quick-create
-  # needs an S3 HTTPS URL it can fetch. Only that one key is public; everything
-  # else in the bucket stays blocked.
+  # Private home for demo_onboarding.yaml. Nothing here is public: the API
+  # hands each visitor a short-lived presigned URL, which CloudFormation
+  # quick-create can fetch. Works with account-level Block Public Access on.
   TemplateBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -59,8 +59,8 @@ Resources:
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         IgnorePublicAcls: true
-        BlockPublicPolicy: false        # required for the single-object policy below
-        RestrictPublicBuckets: false
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
       VersioningConfiguration: { Status: Enabled }
 
   TemplateBucketPolicy:
@@ -70,11 +70,6 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
-          - Sid: PublicReadDemoTemplateOnly
-            Effect: Allow
-            Principal: "*"
-            Action: s3:GetObject
-            Resource: !Sub "${TemplateBucket.Arn}/demo_onboarding.yaml"
           - Sid: DenyInsecureTransport
             Effect: Deny
             Principal: "*"
@@ -109,6 +104,10 @@ Resources:
               - Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !GetAtt DemoScannerFunction.Arn
+              - Sid: SignTemplateLinkOnly
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${TemplateBucket.Arn}/demo_onboarding.yaml"
 
   DemoScannerRole:
     Type: AWS::IAM::Role
@@ -184,7 +183,7 @@ Resources:
         Variables:
           DEMO_TABLE: !Ref DemoTable
           SCANNER_FUNCTION: !Ref DemoScannerFunction
-          DEMO_TEMPLATE_URL: !Sub "https://${TemplateBucket}.s3.${AWS::Region}.amazonaws.com/demo_onboarding.yaml"
+          DEMO_TEMPLATE_BUCKET: !Ref TemplateBucket
           MAX_SCANS_PER_DAY: !Ref MaxScansPerDay
           MAX_SESSIONS_PER_IP_PER_DAY: !Ref MaxSessionsPerIpPerDay
 

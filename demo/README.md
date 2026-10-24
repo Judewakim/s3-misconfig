@@ -28,7 +28,7 @@ At about 1–2 min per scan at 1 GB, a full day at the cap is roughly 50 × $0.0
      --parameter-overrides ImageUri=<acct>.dkr.ecr.us-east-1.amazonaws.com/s3sentry-repo:latest \
        AllowedOrigin=https://wakimworks.com StagingOrigin=<your staging origin>
    ```
-3. **Upload the visitor template** to the bucket named in the stack output `TemplateBucket`:
+3. **Upload the visitor template** to the bucket named in the stack output `TemplateBucket`. The bucket stays private (account-level Block Public Access can stay on); the API gives each visitor a presigned link that's valid for 1 hour.
    ```
    aws s3 cp demo/demo_onboarding.yaml s3://<TemplateBucket>/demo_onboarding.yaml
    ```

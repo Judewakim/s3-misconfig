@@ -17,7 +17,7 @@ sys.path[:0] = [ROOT, os.path.join(ROOT, "demo")]
 os.environ.update({
     "AWS_DEFAULT_REGION": "us-east-1", "AWS_REGION": "us-east-1",
     "AWS_ACCESS_KEY_ID": "testing", "AWS_SECRET_ACCESS_KEY": "testing",
-    "DEMO_TABLE": "S3SentryDemo", "DEMO_TEMPLATE_URL": "https://t.s3.amazonaws.com/demo_onboarding.yaml",
+    "DEMO_TABLE": "S3SentryDemo", "DEMO_TEMPLATE_BUCKET": "s3sentry-demo-templates-test",
     "MAX_SESSIONS_PER_IP_PER_DAY": "2", "MAX_SCANS_PER_DAY": "1",
 })
 
@@ -48,6 +48,8 @@ def test_session_creates_launch_url_and_hides_raw_session_id(api):
     code, body = call(api, "/sessions")
     assert code == 201
     assert "quickcreate" in body["launchUrl"] and "param_ExternalId" in body["launchUrl"]
+    assert "X-Amz-Signature" in body["launchUrl"]          # presigned, bucket stays private
+    assert "s3sentry-demo-templates-test.s3" in body["launchUrl"]
     items = api._table.scan()["Items"]
     sessions = [i for i in items if i["PK"].startswith("SESSION#")]
     assert len(sessions) == 1
@@ -134,3 +136,12 @@ def test_scanner_reports_lost_access(api):
         demo_scanner.handler({"sessionKey": pk}, None)
     body = call(api, "/sessions/status", {"sessionId": sid})[1]
     assert body["status"] == "ERROR" and "stack" in body["error"]
+
+
+def test_launch_link_refresh(api):
+    sid = call(api, "/sessions")[1]["sessionId"]
+    code, body = call(api, "/sessions/launch", {"sessionId": sid})
+    assert code == 200 and "X-Amz-Signature" in body["launchUrl"]
+    with mock.patch.object(api._sts, "assume_role"):
+        call(api, "/sessions/scan", {"sessionId": sid, "accountId": "111122223333"})
+    assert call(api, "/sessions/launch", {"sessionId": sid})[0] == 409

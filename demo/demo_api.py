@@ -11,6 +11,8 @@ Flow
                              is deployed (AssumeRole with the session ExternalId),
                              then queues ONE async scan
   POST /sessions/status   -> {sessionId}: PENDING | SCANNING | DONE | ERROR (+ results)
+  POST /sessions/launch   -> {sessionId}: fresh CloudFormation link (template URLs
+                             are presigned for 1 hour; the bucket is never public)
 
 Security model
 --------------
@@ -36,11 +38,14 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import boto3
+import botocore.config
 import botocore.exceptions
 
 TABLE_NAME            = os.environ.get("DEMO_TABLE", "S3SentryDemo")
 SCANNER_FUNCTION      = os.environ.get("SCANNER_FUNCTION", "S3SentryDemoScanner")
-TEMPLATE_URL          = os.environ.get("DEMO_TEMPLATE_URL", "")
+TEMPLATE_BUCKET       = os.environ.get("DEMO_TEMPLATE_BUCKET", "")
+TEMPLATE_KEY          = "demo_onboarding.yaml"
+TEMPLATE_LINK_SECONDS = 3600   # CloudFormation link lifetime; the page can request a fresh one
 DEMO_ROLE_NAME        = os.environ.get("DEMO_ROLE_NAME", "S3SentryDemoReadOnlyRole")
 REGION                = os.environ.get("AWS_REGION", "us-east-1")
 MAX_SESSIONS_PER_IP   = int(os.environ.get("MAX_SESSIONS_PER_IP_PER_DAY", "5"))
@@ -56,6 +61,9 @@ _ddb    = boto3.resource("dynamodb")
 _table  = _ddb.Table(TABLE_NAME)
 _sts    = boto3.client("sts")
 _lambda = boto3.client("lambda")
+_s3     = boto3.client("s3", region_name=REGION,
+                       config=botocore.config.Config(signature_version="s3v4",
+                                                     s3={"addressing_style": "virtual"}))
 _PROVIDER_ACCOUNT = None
 
 
@@ -162,21 +170,39 @@ def create_session(event):
         ConditionExpression="attribute_not_exists(PK)",
     )
 
-    launch_url = (
+    return _json(201, {
+        "sessionId": session_id,
+        "launchUrl": _launch_url(external_id),
+        "launchExpiresAt": now + TEMPLATE_LINK_SECONDS,
+        "stackName": STACK_NAME,
+        "expiresAt": now + SESSION_TTL_SECONDS,
+    })
+
+
+def _launch_url(external_id):
+    """CloudFormation quick-create link pointing at a short-lived presigned
+    template URL, so the template bucket never needs to be public."""
+    template_url = _s3.generate_presigned_url(
+        "get_object", Params={"Bucket": TEMPLATE_BUCKET, "Key": TEMPLATE_KEY},
+        ExpiresIn=TEMPLATE_LINK_SECONDS,
+    )
+    return (
         f"https://console.aws.amazon.com/cloudformation/home?region={REGION}#/stacks/quickcreate?"
         + urlencode({
-            "templateURL": TEMPLATE_URL,
+            "templateURL": template_url,
             "stackName": STACK_NAME,
             "param_ProviderAccountId": _provider_account(),
             "param_ExternalId": external_id,
         })
     )
-    return _json(201, {
-        "sessionId": session_id,
-        "launchUrl": launch_url,
-        "stackName": STACK_NAME,
-        "expiresAt": now + SESSION_TTL_SECONDS,
-    })
+
+
+def refresh_launch(event):
+    item = _load_session(_parse_body(event))
+    if item["Status"] != "PENDING":
+        raise ApiError(409, "ALREADY_STARTED", "This session already started its scan.")
+    return _json(200, {"launchUrl": _launch_url(item["ExternalId"]),
+                       "launchExpiresAt": int(time.time()) + TEMPLATE_LINK_SECONDS})
 
 
 def start_scan(event):
@@ -239,6 +265,7 @@ ROUTES = {
     ("POST", "/sessions"):        create_session,
     ("POST", "/sessions/scan"):   start_scan,
     ("POST", "/sessions/status"): get_status,
+    ("POST", "/sessions/launch"): refresh_launch,
 }
 
 

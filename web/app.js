@@ -298,6 +298,7 @@
   if (session && session.expiresAt * 1000 > Date.now()) {
     $("launch-link").href = session.launchUrl;
     say("s1-status", "Your demo link is ready.", "ok");
+    refreshLaunch();
     setStep(3);
     poll(true);
   } else {
@@ -313,6 +314,7 @@
       btn.disabled = false;
       if (j._status !== 201) { say("s1-status", j.message || "Couldn't create a session. Try again.", "err"); return; }
       session = { id: j.sessionId, launchUrl: j.launchUrl, expiresAt: j.expiresAt };
+      scheduleRefresh();
       store(SESSION_KEY, JSON.stringify(session));
       $("launch-link").href = j.launchUrl;
       say("s1-status", "Your demo link is ready. It expires in 24 hours.", "ok");
@@ -323,6 +325,25 @@
       say("s1-status", "Couldn't reach the scanner. Check your connection and try again.", "err");
     });
   });
+
+  // The CloudFormation link carries a template URL that is signed for one
+  // hour (the template bucket is private). Keep the link fresh while the
+  // visitor still needs it.
+  var refreshTimer = null;
+  function scheduleRefresh() {
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(refreshLaunch, 45 * 60 * 1000);
+  }
+  function refreshLaunch() {
+    if (!session) return;
+    api("/sessions/launch", { sessionId: session.id }).then(function (j) {
+      if (j._status !== 200 || !j.launchUrl) { clearInterval(refreshTimer); return; }
+      session.launchUrl = j.launchUrl;
+      store(SESSION_KEY, JSON.stringify(session));
+      $("launch-link").href = j.launchUrl;
+      scheduleRefresh();
+    }).catch(function () {});
+  }
 
   $("launch-link").addEventListener("click", function (e) {
     if (this.getAttribute("aria-disabled") === "true") e.preventDefault();
