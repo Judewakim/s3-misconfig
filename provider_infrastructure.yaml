@@ -303,6 +303,8 @@ Resources:
                   - dynamodb:GetItem
                   - dynamodb:PutItem
                   - dynamodb:Query
+                  - dynamodb:UpdateItem    # mark a fix as rolled back (conditional)
+                  - dynamodb:DeleteItem    # un-ignore a finding
                 Resource:
                   - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTableName}"
                   - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${DynamoDBTableName}/index/*"
@@ -313,7 +315,9 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: sts:AssumeRole
+                # SetSourceIdentity stamps the approving person's email into the
+                # customer's CloudTrail for every change S3 Sentry makes.
+                Action: [sts:AssumeRole, sts:SetSourceIdentity]
                 Resource: "arn:aws:iam::*:role/S3SentryCrossAccountRole"
 
         # --- SSM — read the same HMAC signing key as the Orchestrator ---

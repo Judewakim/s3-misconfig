@@ -6,7 +6,7 @@ S3 Sentry scans every S3 bucket in an AWS account for public exposure, missing e
 
 **[Try the live demo →](https://wakimworks.com/judewakim/s3-sentry/)** Run a sample scan in your browser, or scan your own AWS account with a read-only role you delete afterwards.
 
-> **Status: portfolio project in private testing, not a commercial product yet.** Scanning and the public demo work. One-click fixes exist for 2 checks and run in dry-run mode. Rollback is not finished. See [ROADMAP.md](ROADMAP.md) for what's left before it can be sold.
+> **Status: portfolio project in private testing, not a commercial product yet.** Scanning and the public demo work. One-click fixes cover 4 of the 14 checks, each with a pre-change warning, a verified snapshot, a 48-hour Undo link and a downloadable action log. Fixes run in dry-run mode until a customer opts in. There is no signup or billing yet. See [ROADMAP.md](ROADMAP.md) for what's left before it can be sold.
 
 ---
 

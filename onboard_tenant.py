@@ -54,7 +54,8 @@ def extract_account_id(role_arn):
     return parts[4]
 
 
-def write_metadata_to_dynamodb(account_id, role_arn, external_id, email, session):
+def write_metadata_to_dynamodb(account_id, role_arn, external_id, email, session,
+                               remediation_enabled=True):
     """Write the tenant METADATA item to the S3Sentry single table."""
     table = session.resource("dynamodb", region_name=REGION).Table(DYNAMODB_TABLE)
     item = {
@@ -65,6 +66,9 @@ def write_metadata_to_dynamodb(account_id, role_arn, external_id, email, session
         "ExternalId": external_id,
         "Email":      email,
         "Status":     "ACTIVE",
+        # Must match the EnableRemediation value the customer deployed with.
+        # False hides Fix buttons and makes the Responder refuse changes.
+        "RemediationEnabled": remediation_enabled,
     }
     table.put_item(Item=item)
     return item
@@ -100,6 +104,9 @@ if __name__ == "__main__":
             "Customer Email",
             "owner@example.com"
         )
+        remediation_enabled = prompt(
+            "Did they deploy with EnableRemediation=true? (y/n)", "y"
+        ).lower().startswith("y")
 
         # Step 3 — derive AccountId from the RoleArn.
         account_id = extract_account_id(role_arn)
@@ -110,7 +117,7 @@ if __name__ == "__main__":
         session = boto3.Session()
         try:
             item = write_metadata_to_dynamodb(
-                account_id, role_arn, external_id, email, session
+                account_id, role_arn, external_id, email, session, remediation_enabled
             )
         except NoCredentialsError:
             print(
