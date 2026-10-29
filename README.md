@@ -29,7 +29,12 @@ Which checks can be fixed automatically, and whether each fix can be undone, is 
 
 ## Architecture
 
+![S3 Sentry architecture](docs/architecture.svg)
+
 ### Scheduled scanning and remediation (provider account)
+
+<details>
+<summary>Text version of the diagram</summary>
 
 ```mermaid
 flowchart LR
@@ -53,6 +58,8 @@ flowchart LR
   OWNER -- "clicks signed link,<br/>confirms" --> RESP
 ```
 
+</details>
+
 1. EventBridge starts the orchestrator daily. It reads the tenant list from DynamoDB.
 2. For each tenant it assumes the customer's role. The role trusts the provider account only with that tenant's **ExternalId** (stops the confused-deputy attack) **and** only for the two S3 Sentry Lambda roles (`aws:PrincipalArn` condition).
 3. Prowler runs the 14 checks with the temporary credentials. Findings are written to DynamoDB under `ACC#<account id>`, never to the customer's account.
@@ -60,6 +67,9 @@ flowchart LR
 5. The Responder verifies the link, saves the bucket's current settings to the vault, applies the change (dry-run by default) and writes an audit record.
 
 ### Public live demo (isolated)
+
+<details>
+<summary>Text version of the diagram</summary>
 
 ```mermaid
 flowchart LR
@@ -75,6 +85,8 @@ flowchart LR
   V -- "4. poll for results" --> API
   TB[("Private template bucket")] -. "presigned GET, 1 h" .-> CFN
 ```
+
+</details>
 
 The demo shares the scan engine but nothing else. It has its own table, its own IAM roles and its own read-only visitor role. It sends no email and never joins the daily schedule. Abuse and cost are capped by a 256-bit hashed session ID, per-IP and global daily limits, one scan per session, reserved Lambda concurrency and no retries. Details and the cost estimate are in [demo/README.md](demo/README.md).
 
